@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/federicohonda/glox-110766-110759/internal/token"
 )
@@ -132,9 +133,63 @@ func (s *Scanner) scanToken() {
 	case '\n':
 		s.line++
 
+	// Literales de string
+	case '"':
+		s.string()
+
 	default:
-		s.addError(fmt.Sprintf("[línea %d] Error: Carácter no reconocido: %q.", s.line, c))
+		if isDigit(c) {
+			s.number()
+		} else {
+			s.addError(fmt.Sprintf("[línea %d] Error: Carácter no reconocido: %q.", s.line, c))
+		}
 	}
+}
+
+func (s *Scanner) string() {
+	for s.peek() != '"' && !s.isAtEnd() {
+		if s.peek() == '\n' {
+			s.line++
+		}
+		s.advance()
+	}
+
+	if s.isAtEnd() {
+		s.addError(fmt.Sprintf("[línea %d] Error: String no cerrado.", s.line))
+		return
+	}
+
+	// Consumir la comilla de cierre '"'
+	s.advance()
+
+	// El literal es el contenido sin las comillas delimitadoras
+	value := s.source[s.start+1 : s.current-1]
+	s.addTokenLiteral(token.STRING, value)
+}
+
+func (s *Scanner) number() {
+	for isDigit(s.peek()) {
+		s.advance()
+	}
+
+	// Buscar parte decimal
+	if s.peek() == '.' && isDigit(s.peekNext()) {
+		// Consumir el '.'
+		s.advance()
+
+		for isDigit(s.peek()) {
+			s.advance()
+		}
+	}
+
+	numStr := s.source[s.start:s.current]
+	val, err := strconv.ParseFloat(numStr, 64)
+	if err != nil {
+		s.addError(fmt.Sprintf("[línea %d] Error: Número inválido %q: %v.", s.line, numStr, err))
+		return
+	}
+
+	s.addTokenLiteral(token.NUMBER, val)
 }
 
 func (s *Scanner) isAtEnd() bool {
@@ -165,6 +220,13 @@ func (s *Scanner) peek() byte {
 	return s.source[s.current]
 }
 
+func (s *Scanner) peekNext() byte {
+	if s.current+1 >= len(s.source) {
+		return 0
+	}
+	return s.source[s.current+1]
+}
+
 func (s *Scanner) addToken(tokenType token.TokenType) {
 	s.addTokenLiteral(tokenType, nil)
 }
@@ -181,4 +243,8 @@ func (s *Scanner) addTokenLiteral(tokenType token.TokenType, literal any) {
 
 func (s *Scanner) addError(msg string) {
 	s.errors = append(s.errors, msg)
+}
+
+func isDigit(c byte) bool {
+	return c >= '0' && c <= '9'
 }
