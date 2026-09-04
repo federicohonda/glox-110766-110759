@@ -1,1 +1,291 @@
 package scanner
+
+import (
+	"fmt"
+	"strconv"
+
+	"github.com/federicohonda/glox-110766-110759/internal/token"
+)
+
+// keywords mapea las palabras reservadas del lenguaje a su respectivo TokenType.
+var keywords = map[string]token.TokenType{
+	"and":    token.AND,
+	"else":   token.ELSE,
+	"false":  token.FALSE,
+	"for":    token.FOR,
+	"fun":    token.FUN,
+	"if":     token.IF,
+	"nil":    token.NIL,
+	"or":     token.OR,
+	"print":  token.PRINT,
+	"return": token.RETURN,
+	"true":   token.TRUE,
+	"var":    token.VAR,
+	"while":  token.WHILE,
+}
+
+// Scanner se encarga del análisis léxico convirtiendo el código fuente en una secuencia de tokens.
+type Scanner struct {
+	source  string
+	tokens  []token.Token
+	start   int
+	current int
+	line    int
+	errors  []string
+}
+
+// New crea e inicializa un nuevo Scanner para el código fuente provisto.
+func New(source string) *Scanner {
+	return &Scanner{
+		source: source,
+		line:   1,
+	}
+}
+
+// Scan analiza la totalidad del código fuente y devuelve los tokens reconocidos y los errores acumulados.
+func (s *Scanner) Scan() ([]token.Token, []string) {
+	s.start = 0
+	s.current = 0
+	s.line = 1
+	s.tokens = nil
+	s.errors = nil
+
+	for !s.isAtEnd() {
+		s.start = s.current
+		s.scanToken()
+	}
+
+	s.tokens = append(s.tokens, token.Token{
+		Type:    token.EOF,
+		Lexeme:  "",
+		Literal: nil,
+		Line:    s.line,
+	})
+
+	return s.tokens, s.errors
+}
+
+// HasErrors indica si se encontraron errores durante el escaneo.
+func (s *Scanner) HasErrors() bool {
+	return len(s.errors) > 0
+}
+
+// Errors devuelve la lista de errores encontrados.
+func (s *Scanner) Errors() []string {
+	return s.errors
+}
+
+// Tokens devuelve la lista de tokens generados.
+func (s *Scanner) Tokens() []token.Token {
+	return s.tokens
+}
+
+func (s *Scanner) scanToken() {
+	c := s.advance()
+
+	switch c {
+	// Tokens de un solo carácter
+	case '(':
+		s.addToken(token.LEFT_PAREN)
+	case ')':
+		s.addToken(token.RIGHT_PAREN)
+	case '{':
+		s.addToken(token.LEFT_BRACE)
+	case '}':
+		s.addToken(token.RIGHT_BRACE)
+	case ',':
+		s.addToken(token.COMMA)
+	case '-':
+		s.addToken(token.MINUS)
+	case '+':
+		s.addToken(token.PLUS)
+	case ';':
+		s.addToken(token.SEMICOLON)
+	case '*':
+		s.addToken(token.STAR)
+	case '%':
+		s.addToken(token.PERCENT)
+
+	// Operadores de uno o dos caracteres
+	case '!':
+		if s.match('=') {
+			s.addToken(token.BANG_EQUAL)
+		} else {
+			s.addToken(token.BANG)
+		}
+	case '=':
+		if s.match('=') {
+			s.addToken(token.EQUAL_EQUAL)
+		} else {
+			s.addToken(token.EQUAL)
+		}
+	case '<':
+		if s.match('=') {
+			s.addToken(token.LESS_EQUAL)
+		} else {
+			s.addToken(token.LESS)
+		}
+	case '>':
+		if s.match('=') {
+			s.addToken(token.GREATER_EQUAL)
+		} else {
+			s.addToken(token.GREATER)
+		}
+
+	// Barras y comentarios
+	case '/':
+		if s.match('/') {
+			// Comentario de una línea: consumir hasta el final de la línea o del archivo.
+			// No consumimos el '\n' para que el loop principal actualice s.line.
+			for s.peek() != '\n' && !s.isAtEnd() {
+				s.advance()
+			}
+		} else {
+			s.addToken(token.SLASH)
+		}
+
+	// Espacios en blanco y saltos de línea
+	case ' ', '\r', '\t':
+		// Ignorar whitespace
+	case '\n':
+		s.line++
+
+	// Literales de string
+	case '"':
+		s.string()
+
+	default:
+		if isDigit(c) {
+			s.number()
+		} else if isAlpha(c) {
+			s.identifier()
+		} else {
+			s.addError(fmt.Sprintf("[línea %d] Error: Carácter no reconocido: %q.", s.line, c))
+		}
+	}
+}
+
+func (s *Scanner) string() {
+	for s.peek() != '"' && !s.isAtEnd() {
+		if s.peek() == '\n' {
+			s.line++
+		}
+		s.advance()
+	}
+
+	if s.isAtEnd() {
+		s.addError(fmt.Sprintf("[línea %d] Error: String no cerrado.", s.line))
+		return
+	}
+
+	// Consumir la comilla de cierre '"'
+	s.advance()
+
+	// El literal es el contenido sin las comillas delimitadoras
+	value := s.source[s.start+1 : s.current-1]
+	s.addTokenLiteral(token.STRING, value)
+}
+
+func (s *Scanner) number() {
+	for isDigit(s.peek()) {
+		s.advance()
+	}
+
+	// Buscar parte decimal
+	if s.peek() == '.' && isDigit(s.peekNext()) {
+		// Consumir el '.'
+		s.advance()
+
+		for isDigit(s.peek()) {
+			s.advance()
+		}
+	}
+
+	numStr := s.source[s.start:s.current]
+	val, err := strconv.ParseFloat(numStr, 64)
+	if err != nil {
+		s.addError(fmt.Sprintf("[línea %d] Error: Número inválido %q: %v.", s.line, numStr, err))
+		return
+	}
+
+	s.addTokenLiteral(token.NUMBER, val)
+}
+
+func (s *Scanner) identifier() {
+	for isAlphaNumeric(s.peek()) {
+		s.advance()
+	}
+
+	text := s.source[s.start:s.current]
+	tokenType, isKeyword := keywords[text]
+	if !isKeyword {
+		tokenType = token.IDENTIFIER
+	}
+
+	s.addToken(tokenType)
+}
+
+func (s *Scanner) isAtEnd() bool {
+	return s.current >= len(s.source)
+}
+
+func (s *Scanner) advance() byte {
+	c := s.source[s.current]
+	s.current++
+	return c
+}
+
+func (s *Scanner) match(expected byte) bool {
+	if s.isAtEnd() {
+		return false
+	}
+	if s.source[s.current] != expected {
+		return false
+	}
+	s.current++
+	return true
+}
+
+func (s *Scanner) peek() byte {
+	if s.isAtEnd() {
+		return 0
+	}
+	return s.source[s.current]
+}
+
+func (s *Scanner) peekNext() byte {
+	if s.current+1 >= len(s.source) {
+		return 0
+	}
+	return s.source[s.current+1]
+}
+
+func (s *Scanner) addToken(tokenType token.TokenType) {
+	s.addTokenLiteral(tokenType, nil)
+}
+
+func (s *Scanner) addTokenLiteral(tokenType token.TokenType, literal any) {
+	text := s.source[s.start:s.current]
+	s.tokens = append(s.tokens, token.Token{
+		Type:    tokenType,
+		Lexeme:  text,
+		Literal: literal,
+		Line:    s.line,
+	})
+}
+
+func (s *Scanner) addError(msg string) {
+	s.errors = append(s.errors, msg)
+}
+
+func isDigit(c byte) bool {
+	return c >= '0' && c <= '9'
+}
+
+func isAlpha(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+}
+
+func isAlphaNumeric(c byte) bool {
+	return isAlpha(c) || isDigit(c)
+}
