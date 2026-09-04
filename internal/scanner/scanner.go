@@ -7,6 +7,23 @@ import (
 	"github.com/federicohonda/glox-110766-110759/internal/token"
 )
 
+// keywords mapea las palabras reservadas del lenguaje a su respectivo TokenType.
+var keywords = map[string]token.TokenType{
+	"and":    token.AND,
+	"else":   token.ELSE,
+	"false":  token.FALSE,
+	"for":    token.FOR,
+	"fun":    token.FUN,
+	"if":     token.IF,
+	"nil":    token.NIL,
+	"or":     token.OR,
+	"print":  token.PRINT,
+	"return": token.RETURN,
+	"true":   token.TRUE,
+	"var":    token.VAR,
+	"while":  token.WHILE,
+}
+
 // Scanner se encarga del análisis léxico convirtiendo el código fuente en una secuencia de tokens.
 type Scanner struct {
 	source  string
@@ -140,6 +157,8 @@ func (s *Scanner) scanToken() {
 	default:
 		if isDigit(c) {
 			s.number()
+		} else if isAlpha(c) {
+			s.identifier()
 		} else {
 			s.addError(fmt.Sprintf("[línea %d] Error: Carácter no reconocido: %q.", s.line, c))
 		}
@@ -190,6 +209,20 @@ func (s *Scanner) number() {
 	}
 
 	s.addTokenLiteral(token.NUMBER, val)
+}
+
+func (s *Scanner) identifier() {
+	for isAlphaNumeric(s.peek()) {
+		s.advance()
+	}
+
+	text := s.source[s.start:s.current]
+	tokenType, isKeyword := keywords[text]
+	if !isKeyword {
+		tokenType = token.IDENTIFIER
+	}
+
+	s.addToken(tokenType)
 }
 
 func (s *Scanner) isAtEnd() bool {
@@ -247,4 +280,12 @@ func (s *Scanner) addError(msg string) {
 
 func isDigit(c byte) bool {
 	return c >= '0' && c <= '9'
+}
+
+func isAlpha(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+}
+
+func isAlphaNumeric(c byte) bool {
+	return isAlpha(c) || isDigit(c)
 }

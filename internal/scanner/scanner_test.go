@@ -134,3 +134,84 @@ func TestMultilineString(t *testing.T) {
 		t.Errorf("se esperaba que la línea final sea 3, se obtuvo %d", tokens[0].Line)
 	}
 }
+
+func TestKeywordsAndIdentifiers(t *testing.T) {
+	input := "and else false for fun if nil or print return true var while miVariable _otro123"
+	sc := New(input)
+	tokens, errs := sc.Scan()
+
+	if len(errs) > 0 {
+		t.Fatalf("se encontraron errores inesperados: %v", errs)
+	}
+
+	expected := []struct {
+		typ    token.TokenType
+		lexeme string
+	}{
+		{token.AND, "and"},
+		{token.ELSE, "else"},
+		{token.FALSE, "false"},
+		{token.FOR, "for"},
+		{token.FUN, "fun"},
+		{token.IF, "if"},
+		{token.NIL, "nil"},
+		{token.OR, "or"},
+		{token.PRINT, "print"},
+		{token.RETURN, "return"},
+		{token.TRUE, "true"},
+		{token.VAR, "var"},
+		{token.WHILE, "while"},
+		{token.IDENTIFIER, "miVariable"},
+		{token.IDENTIFIER, "_otro123"},
+		{token.EOF, ""},
+	}
+
+	if len(tokens) != len(expected) {
+		t.Fatalf("se esperaban %d tokens, se obtuvieron %d", len(expected), len(tokens))
+	}
+
+	for i, exp := range expected {
+		if tokens[i].Type != exp.typ {
+			t.Errorf("token %d: se esperaba tipo %s, se obtuvo %s", i, exp.typ, tokens[i].Type)
+		}
+		if tokens[i].Lexeme != exp.lexeme {
+			t.Errorf("token %d: se esperaba lexema %q, se obtuvo %q", i, exp.lexeme, tokens[i].Lexeme)
+		}
+	}
+}
+
+func TestErrorsAccumulation(t *testing.T) {
+	input := "@ var x = 10; # \"string sin terminar"
+	sc := New(input)
+	tokens, errs := sc.Scan()
+
+	if len(errs) != 3 {
+		t.Fatalf("se esperaban 3 errores acumulados (@, #, string sin cerrar), se obtuvieron %d: %v", len(errs), errs)
+	}
+
+	// A pesar de los errores, los tokens válidos deben haber sido extraídos
+	var types []token.TokenType
+	for _, tok := range tokens {
+		types = append(types, tok.Type)
+	}
+
+	// Debe contener VAR, IDENTIFIER (x), EQUAL, NUMBER (10), SEMICOLON, EOF
+	expectedValid := []token.TokenType{
+		token.VAR,
+		token.IDENTIFIER,
+		token.EQUAL,
+		token.NUMBER,
+		token.SEMICOLON,
+		token.EOF,
+	}
+
+	if len(types) != len(expectedValid) {
+		t.Fatalf("se esperaban %d tokens válidos rescatados, se obtuvieron %d: %v", len(expectedValid), len(types), types)
+	}
+
+	for i, exp := range expectedValid {
+		if types[i] != exp {
+			t.Errorf("token %d: se esperaba %s, se obtuvo %s", i, exp, types[i])
+		}
+	}
+}

@@ -1,1 +1,14 @@
-print "Hello, world!";
+// Programa de ejemplo para probar el escaneo léxico en glox
+var mensaje = "Hello, world!";
+var multiline = "primera linea
+segunda linea";
+var entero = 42;
+var pi = 3.14159;
+var esVerdad = true;
+var nada = nil;
+
+if (entero >= 40 and !esVerdad) {
+    print mensaje;
+} else {
+    print 10 % 3;
+}
