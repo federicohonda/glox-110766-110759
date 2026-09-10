@@ -117,6 +117,9 @@ func (p *Parser) varDeclaration() ast.Stmt {
 }
 
 func (p *Parser) statement() ast.Stmt {
+	if p.match(token.IF) {
+		return p.ifStatement()
+	}
 	if p.match(token.PRINT) {
 		return p.printStatement()
 	}
@@ -124,6 +127,24 @@ func (p *Parser) statement() ast.Stmt {
 		return &ast.Block{Statements: p.block()}
 	}
 	return p.expressionStatement()
+}
+
+func (p *Parser) ifStatement() ast.Stmt {
+	p.consume(token.LEFT_PAREN, "se esperaba '(' después de 'if'.")
+	condition := p.expression()
+	p.consume(token.RIGHT_PAREN, "se esperaba ')' después de la condición del if.")
+
+	thenBranch := p.statement()
+	var elseBranch ast.Stmt
+	if p.match(token.ELSE) {
+		elseBranch = p.statement()
+	}
+
+	return &ast.IfStmt{
+		Condition:  condition,
+		ThenBranch: thenBranch,
+		ElseBranch: elseBranch,
+	}
 }
 
 func (p *Parser) printStatement() ast.Stmt {
@@ -158,7 +179,7 @@ func (p *Parser) expression() ast.Expr {
 }
 
 func (p *Parser) assignment() ast.Expr {
-	expr := p.equality()
+	expr := p.logicOr()
 
 	if p.match(token.EQUAL) {
 		equals := p.previous()
@@ -169,6 +190,30 @@ func (p *Parser) assignment() ast.Expr {
 		}
 
 		panic(p.errorAt(equals, "destino de asignación inválido."))
+	}
+
+	return expr
+}
+
+func (p *Parser) logicOr() ast.Expr {
+	expr := p.logicAnd()
+
+	for p.match(token.OR) {
+		operator := p.previous()
+		right := p.logicAnd()
+		expr = &ast.Logical{Left: expr, Operator: operator, Right: right}
+	}
+
+	return expr
+}
+
+func (p *Parser) logicAnd() ast.Expr {
+	expr := p.equality()
+
+	for p.match(token.AND) {
+		operator := p.previous()
+		right := p.equality()
+		expr = &ast.Logical{Left: expr, Operator: operator, Right: right}
 	}
 
 	return expr
