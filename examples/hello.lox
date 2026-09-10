@@ -1,4 +1,4 @@
-// Programa de ejemplo para probar el escaneo léxico en glox
+// Programa de demostración de Lox en glox (Fase 3: árbol completo de ejecución)
 var mensaje = "Hello, world!";
 var multiline = "primera linea
 segunda linea";
@@ -7,8 +7,38 @@ var pi = 3.14159;
 var esVerdad = true;
 var nada = nil;
 
-if (entero >= 40 and !esVerdad) {
+// Control de flujo: if / else y operadores lógicos con cortocircuito
+if (entero >= 40 and esVerdad) {
     print mensaje;
 } else {
-    print 10 % 3;
+    print "no se cumplió la condición";
+}
+
+// Scoping léxico y sombreado (shadowing) en bloques
+var x = "global";
+{
+    var x = "bloque interno";
+    print x;
+}
+print x;
+
+// Bucle while: cálculo de sumatoria
+var n = 1;
+var suma = 0;
+while (n <= 5) {
+    suma = suma + n;
+    n = n + 1;
+}
+print "Sumatoria 1..5 con while:";
+print suma;
+
+// Bucle for: serie de Fibonacci (primeros términos)
+print "Serie de Fibonacci con for:";
+var a = 0;
+var b = 1;
+for (var i = 0; i < 6; i = i + 1) {
+    print a;
+    var temp = a + b;
+    a = b;
+    b = temp;
 }

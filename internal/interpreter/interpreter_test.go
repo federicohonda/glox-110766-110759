@@ -565,4 +565,122 @@ func TestInterpretShortCircuiting(t *testing.T) {
 	}
 }
 
+func TestInterpretWhileLoop(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+	}{
+		{
+			name: "while cuenta sumatoria de 1 a 5",
+			source: `
+				var i = 1;
+				var suma = 0;
+				while (i <= 5) {
+					suma = suma + i;
+					i = i + 1;
+				}
+				if (suma != 15) print 1 / 0;
+			`,
+		},
+		{
+			name: "while con condición falsa no ejecuta cuerpo",
+			source: `
+				var ejecutado = false;
+				while (false) {
+					ejecutado = true;
+				}
+				if (ejecutado) print 1 / 0;
+			`,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := interpretSource(t, c.source)
+			if err != nil {
+				t.Fatalf("interpretSource(%q) falló: %v", c.source, err)
+			}
+		})
+	}
+}
+
+func TestInterpretForLoop(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+	}{
+		{
+			name: "for clásico con sumatoria",
+			source: `
+				var suma = 0;
+				for (var i = 0; i < 10; i = i + 1) {
+					suma = suma + i;
+				}
+				if (suma != 45) print 1 / 0;
+			`,
+		},
+		{
+			name: "for sin inicializador",
+			source: `
+				var suma = 0;
+				var i = 0;
+				for (; i < 5; i = i + 1) {
+					suma = suma + 1;
+				}
+				if (suma != 5) print 1 / 0;
+			`,
+		},
+		{
+			name: "for sin incremento",
+			source: `
+				var count = 0;
+				for (var i = 0; i < 3;) {
+					count = count + 1;
+					i = i + 1;
+				}
+				if (count != 3) print 1 / 0;
+			`,
+		},
+		{
+			name: "for anidados",
+			source: `
+				var total = 0;
+				for (var x = 0; x < 3; x = x + 1) {
+					for (var y = 0; y < 3; y = y + 1) {
+						total = total + 1;
+					}
+				}
+				if (total != 9) print 1 / 0;
+			`,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := interpretSource(t, c.source)
+			if err != nil {
+				t.Fatalf("interpretSource(%q) falló: %v", c.source, err)
+			}
+		})
+	}
+}
+
+func TestInterpretForVariableScoping(t *testing.T) {
+	// La variable declarada en el for debe estar encerrada en su bloque
+	// y no existir fuera de él
+	source := `
+		for (var variableFor = 0; variableFor < 1; variableFor = variableFor + 1) {
+			print variableFor;
+		}
+		print variableFor;
+	`
+	_, err := interpretSource(t, source)
+	if err == nil {
+		t.Fatal("se esperaba RuntimeError al acceder a la variable del for fuera del bucle")
+	}
+	if _, ok := err.(*interpreter.RuntimeError); !ok {
+		t.Errorf("se esperaba *interpreter.RuntimeError, se obtuvo %T: %v", err, err)
+	}
+}
+
 var _ = math.Abs // asegurar que math pueda compilarse

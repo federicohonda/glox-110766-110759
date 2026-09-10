@@ -96,6 +96,21 @@ func (i *Interpreter) Execute(stmt ast.Stmt) error {
 		}
 		return nil
 
+	case *ast.WhileStmt:
+		for {
+			cond, err := i.Evaluate(s.Condition)
+			if err != nil {
+				return err
+			}
+			if !isTruthy(cond) {
+				break
+			}
+			if err := i.Execute(s.Body); err != nil {
+				return err
+			}
+		}
+		return nil
+
 	case *ast.Block:
 		return i.executeBlock(s.Statements, NewEnclosingEnvironment(i.environment))
 

@@ -87,3 +87,15 @@ func (s *IfStmt) String() string {
 	}
 	return fmt.Sprintf("(if-else %s %s %s)", s.Condition, s.ThenBranch, s.ElseBranch)
 }
+
+// WhileStmt representa un bucle `while (<condition>) <body>`.
+type WhileStmt struct {
+	Condition Expr
+	Body      Stmt
+}
+
+func (*WhileStmt) isStmt() {}
+
+func (w *WhileStmt) String() string {
+	return fmt.Sprintf("(while %s %s)", w.Condition, w.Body)
+}

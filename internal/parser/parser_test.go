@@ -126,6 +126,26 @@ func TestParserStatements(t *testing.T) {
 			source: "if (a) if (b) print 1; else print 2;",
 			want:   "(if a (if-else b (print 1) (print 2)))",
 		},
+		{
+			name:   "while statement",
+			source: "while (x < 10) x = x + 1;",
+			want:   "(while (< x 10) (expr (= x (+ x 1))))",
+		},
+		{
+			name:   "for desazucarado completo",
+			source: "for (var i = 0; i < 5; i = i + 1) print i;",
+			want:   "(block (var i = 0) (while (< i 5) (block (print i) (expr (= i (+ i 1))))))",
+		},
+		{
+			name:   "for sin inicializador ni incremento",
+			source: "for (; x < 5;) print x;",
+			want:   "(while (< x 5) (print x))",
+		},
+		{
+			name:   "for infinito for (;;)",
+			source: "for (;;) print 1;",
+			want:   "(while true (print 1))",
+		},
 	}
 
 	for _, c := range cases {
@@ -153,6 +173,10 @@ func TestParserReportsSyntaxErrors(t *testing.T) {
 		{"bloque sin cerrar", "{ var x = 1;"},
 		{"if sin paréntesis", "if true print 1;"},
 		{"if con paréntesis sin cerrar", "if (true print 1;"},
+		{"while sin paréntesis", "while true print 1;"},
+		{"while con paréntesis sin cerrar", "while (true print 1;"},
+		{"for sin paréntesis", "for ; ; print 1;"},
+		{"for sin primer punto y coma", "for (var i = 0 i < 5; i = i + 1) print i;"},
 	}
 
 	for _, c := range cases {

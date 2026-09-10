@@ -117,16 +117,89 @@ func (p *Parser) varDeclaration() ast.Stmt {
 }
 
 func (p *Parser) statement() ast.Stmt {
+	if p.match(token.FOR) {
+		return p.forStatement()
+	}
 	if p.match(token.IF) {
 		return p.ifStatement()
 	}
 	if p.match(token.PRINT) {
 		return p.printStatement()
 	}
+	if p.match(token.WHILE) {
+		return p.whileStatement()
+	}
 	if p.match(token.LEFT_BRACE) {
 		return &ast.Block{Statements: p.block()}
 	}
 	return p.expressionStatement()
+}
+
+func (p *Parser) whileStatement() ast.Stmt {
+	p.consume(token.LEFT_PAREN, "se esperaba '(' después de 'while'.")
+	condition := p.expression()
+	p.consume(token.RIGHT_PAREN, "se esperaba ')' después de la condición del while.")
+
+	body := p.statement()
+	return &ast.WhileStmt{
+		Condition: condition,
+		Body:      body,
+	}
+}
+
+func (p *Parser) forStatement() ast.Stmt {
+	p.consume(token.LEFT_PAREN, "se esperaba '(' después de 'for'.")
+
+	var initializer ast.Stmt
+	if p.match(token.SEMICOLON) {
+		initializer = nil
+	} else if p.match(token.VAR) {
+		initializer = p.varDeclaration()
+	} else {
+		initializer = p.expressionStatement()
+	}
+
+	var condition ast.Expr
+	if !p.check(token.SEMICOLON) {
+		condition = p.expression()
+	}
+	p.consume(token.SEMICOLON, "se esperaba ';' después de la condición del for.")
+
+	var increment ast.Expr
+	if !p.check(token.RIGHT_PAREN) {
+		increment = p.expression()
+	}
+	p.consume(token.RIGHT_PAREN, "se esperaba ')' después de las cláusulas del for.")
+
+	body := p.statement()
+
+	// Si hay cláusula de incremento, se ejecuta al final de cada iteración
+	if increment != nil {
+		body = &ast.Block{
+			Statements: []ast.Stmt{
+				body,
+				&ast.ExpressionStmt{Expression: increment},
+			},
+		}
+	}
+
+	// Si no hay condición, equivale a un bucle infinito while (true)
+	if condition == nil {
+		condition = &ast.Literal{Value: true}
+	}
+	body = &ast.WhileStmt{Condition: condition, Body: body}
+
+	// Si hay inicializador, se ejecuta una única vez antes del bucle en un bloque propio
+	if initializer != nil {
+		body = &ast.Block{
+			Statements: []ast.Stmt{
+				initializer,
+				body,
+			},
+		}
+	}
+
+	return body
 }
 
 func (p *Parser) ifStatement() ast.Stmt {
