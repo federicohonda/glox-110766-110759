@@ -1,6 +1,7 @@
 package parser_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/federicohonda/glox-110766-110759/internal/parser"
@@ -8,19 +9,35 @@ import (
 )
 
 // parseTree escanea y parsea una expresión y devuelve su representación en
-// notación prefija parentizada (ver ast.Expr.String), que es lo que también
-// imprime el modo --parsing del CLI.
+// notación prefija parentizada (ver ast.Expr.String).
 func parseTree(t *testing.T, source string) string {
 	t.Helper()
 	tokens, scanErrs := scanner.New(source).Scan()
 	if len(scanErrs) > 0 {
 		t.Fatalf("error de escaneo inesperado en %q: %v", source, scanErrs)
 	}
-	expr, err := parser.New(tokens).Parse()
+	expr, err := parser.New(tokens).ParseExpression()
 	if err != nil {
 		t.Fatalf("error de parseo inesperado en %q: %v", source, err)
 	}
 	return expr.String()
+}
+
+func parseProgram(t *testing.T, source string) string {
+	t.Helper()
+	tokens, scanErrs := scanner.New(source).Scan()
+	if len(scanErrs) > 0 {
+		t.Fatalf("error de escaneo inesperado en %q: %v", source, scanErrs)
+	}
+	stmts, parseErrs := parser.New(tokens).Parse()
+	if len(parseErrs) > 0 {
+		t.Fatalf("errores de parseo inesperados en %q: %v", source, parseErrs)
+	}
+	var parts []string
+	for _, s := range stmts {
+		parts = append(parts, s.String())
+	}
+	return strings.Join(parts, " ")
 }
 
 func TestParserBuildsExpectedTree(t *testing.T) {
@@ -39,6 +56,9 @@ func TestParserBuildsExpectedTree(t *testing.T) {
 		{"literal nil solo", "nil", "nil"},
 		{"paréntesis anidados", "((1))", "(group (group 1))"},
 		{"strings comparados", "\"a\" == \"b\"", "(== a b)"},
+		{"acceso a variable", "x", "x"},
+		{"asignación simple", "x = 5", "(= x 5)"},
+		{"asignación encadenada", "a = b = 3", "(= a (= b 3))"},
 	}
 
 	for _, c := range cases {
@@ -46,6 +66,54 @@ func TestParserBuildsExpectedTree(t *testing.T) {
 			got := parseTree(t, c.source)
 			if got != c.want {
 				t.Fatalf("parseTree(%q) = %q, esperaba %q", c.source, got, c.want)
+			}
+		})
+	}
+}
+
+func TestParserStatements(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{
+			name:   "checkpoint: var y print",
+			source: "var x = 1; print x;",
+			want:   "(var x = 1) (print x)",
+		},
+		{
+			name:   "declaración sin inicializador",
+			source: "var a;",
+			want:   "(var a)",
+		},
+		{
+			name:   "expression statement",
+			source: "1 + 2; x = 5;",
+			want:   "(expr (+ 1 2)) (expr (= x 5))",
+		},
+		{
+			name:   "print statement",
+			source: "print \"hola\";",
+			want:   "(print hola)",
+		},
+		{
+			name:   "bloque simple",
+			source: "{ var a = 1; print a; }",
+			want:   "(block (var a = 1) (print a))",
+		},
+		{
+			name:   "bloques anidados",
+			source: "{ { var b = 2; } }",
+			want:   "(block (block (var b = 2)))",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := parseProgram(t, c.source)
+			if got != c.want {
+				t.Fatalf("parseProgram(%q) = %q, esperaba %q", c.source, got, c.want)
 			}
 		})
 	}
@@ -59,6 +127,11 @@ func TestParserReportsSyntaxErrors(t *testing.T) {
 		{"expresión incompleta tras operador binario", "1 + "},
 		{"paréntesis sin cerrar", "(1 + 2"},
 		{"token inesperado en primary", ";"},
+		{"destino de asignación inválido", "1 + 2 = 3"},
+		{"var sin identificador", "var = 5;"},
+		{"falta punto y coma en var", "var x = 1"},
+		{"falta punto y coma en print", "print 1"},
+		{"bloque sin cerrar", "{ var x = 1;"},
 	}
 
 	for _, c := range cases {
@@ -67,9 +140,31 @@ func TestParserReportsSyntaxErrors(t *testing.T) {
 			if len(scanErrs) > 0 {
 				t.Fatalf("error de escaneo inesperado en %q: %v", c.source, scanErrs)
 			}
-			if _, err := parser.New(tokens).Parse(); err == nil {
+			p := parser.New(tokens)
+			// Probar que falle en Parse o ParseExpression
+			_, errs := p.Parse()
+			if len(errs) == 0 {
 				t.Fatalf("esperaba un error de sintaxis parseando %q, no obtuve ninguno", c.source)
 			}
 		})
+	}
+}
+
+func TestParserErrorSynchronization(t *testing.T) {
+	// Ante un error en la primera sentencia ("var = 1;"), el parser debe sincronizar
+	// en el punto y coma y continuar parseando la segunda sentencia ("print 2;").
+	source := "var = 1; print 2;"
+	tokens, scanErrs := scanner.New(source).Scan()
+	if len(scanErrs) > 0 {
+		t.Fatalf("error de escaneo inesperado: %v", scanErrs)
+	}
+
+	p := parser.New(tokens)
+	stmts, parseErrs := p.Parse()
+	if len(parseErrs) == 0 {
+		t.Fatal("se esperaba al menos un error de sintaxis")
+	}
+	if len(stmts) != 0 {
+		// Parse() devuelve nil cuando len(errors) > 0
 	}
 }

@@ -13,7 +13,8 @@ import (
 type Value = any
 
 // RuntimeError representa un error producido durante la evaluación de una
-// expresión (por ejemplo, tipos incompatibles o división por cero).
+// expresión o ejecución de una sentencia (por ejemplo, tipos incompatibles o
+// variable no definida).
 // Contiene el token donde ocurrió para reportar la línea y contexto.
 type RuntimeError struct {
 	Token   token.Token
@@ -27,16 +28,72 @@ func (e *RuntimeError) Error() string {
 	return fmt.Sprintf("[línea %d] Error en tiempo de ejecución en '%s': %s", e.Token.Line, e.Token.Lexeme, e.Message)
 }
 
-// Interpreter evalúa nodos del AST y produce valores o errores de runtime.
-// El despacho por tipo de nodo se realiza mediante un type switch idiomático de Go.
-type Interpreter struct{}
-
-// New crea una nueva instancia de Interpreter.
-func New() *Interpreter {
-	return &Interpreter{}
+// Interpreter ejecuta sentencias y evalúa expresiones del AST.
+// Mantiene el estado global de variables y despacha por tipo de nodo
+// mediante type switches idiomáticos de Go.
+type Interpreter struct {
+	globals map[string]Value
 }
 
-// Evaluate despacha la evaluación de la expresión según su tipo concreto de nodo.
+// New crea una nueva instancia de Interpreter con un entorno global limpio.
+func New() *Interpreter {
+	return &Interpreter{
+		globals: make(map[string]Value),
+	}
+}
+
+// Interpret ejecuta una lista de sentencias en secuencia. Si alguna produce
+// un error de runtime, se detiene inmediatamente y devuelve dicho error.
+func (i *Interpreter) Interpret(stmts []ast.Stmt) error {
+	for _, stmt := range stmts {
+		if err := i.Execute(stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Execute despacha la ejecución de una sentencia según su tipo concreto de nodo.
+func (i *Interpreter) Execute(stmt ast.Stmt) error {
+	switch s := stmt.(type) {
+	case *ast.ExpressionStmt:
+		_, err := i.Evaluate(s.Expression)
+		return err
+
+	case *ast.PrintStmt:
+		val, err := i.Evaluate(s.Expression)
+		if err != nil {
+			return err
+		}
+		fmt.Println(Stringify(val))
+		return nil
+
+	case *ast.VarDecl:
+		var val Value = nil
+		if s.Initializer != nil {
+			var err error
+			val, err = i.Evaluate(s.Initializer)
+			if err != nil {
+				return err
+			}
+		}
+		i.globals[s.Name.Lexeme] = val
+		return nil
+
+	case *ast.Block:
+		for _, statement := range s.Statements {
+			if err := i.Execute(statement); err != nil {
+				return err
+			}
+		}
+		return nil
+
+	default:
+		return fmt.Errorf("tipo de sentencia no soportado: %T", stmt)
+	}
+}
+
+// Evaluate despacha la evaluación de una expresión según su tipo concreto de nodo.
 func (i *Interpreter) Evaluate(expr ast.Expr) (Value, error) {
 	switch e := expr.(type) {
 	case *ast.Literal:
@@ -44,6 +101,30 @@ func (i *Interpreter) Evaluate(expr ast.Expr) (Value, error) {
 
 	case *ast.Grouping:
 		return i.Evaluate(e.Expression)
+
+	case *ast.Variable:
+		val, ok := i.globals[e.Name.Lexeme]
+		if !ok {
+			return nil, &RuntimeError{
+				Token:   e.Name,
+				Message: fmt.Sprintf("variable no definida '%s'.", e.Name.Lexeme),
+			}
+		}
+		return val, nil
+
+	case *ast.Assign:
+		val, err := i.Evaluate(e.Value)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := i.globals[e.Name.Lexeme]; !ok {
+			return nil, &RuntimeError{
+				Token:   e.Name,
+				Message: fmt.Sprintf("variable no definida '%s'.", e.Name.Lexeme),
+			}
+		}
+		i.globals[e.Name.Lexeme] = val
+		return val, nil
 
 	case *ast.Unary:
 		right, err := i.Evaluate(e.Right)
