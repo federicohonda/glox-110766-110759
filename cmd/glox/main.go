@@ -36,7 +36,8 @@ func runFile(path string, scanning, parsing bool) {
 		os.Exit(1)
 	}
 
-	hadError, hadRuntimeError := run(string(bytes), scanning, parsing)
+	interp := interpreter.New()
+	hadError, hadRuntimeError := run(string(bytes), scanning, parsing, interp)
 	if hadError {
 		os.Exit(65)
 	}
@@ -47,17 +48,18 @@ func runFile(path string, scanning, parsing bool) {
 
 func runPrompt(scanning, parsing bool) {
 	sc := bufio.NewScanner(os.Stdin)
+	interp := interpreter.New()
 	for {
 		fmt.Print("> ")
 		if !sc.Scan() {
 			break
 		}
 		line := sc.Text()
-		run(line, scanning, parsing)
+		run(line, scanning, parsing, interp)
 	}
 }
 
-func run(source string, scanning, parsing bool) (hadError bool, hadRuntimeError bool) {
+func run(source string, scanning, parsing bool, interp *interpreter.Interpreter) (hadError bool, hadRuntimeError bool) {
 	sc := scanner.New(source)
 	tokens, errs := sc.Scan()
 
@@ -77,33 +79,29 @@ func run(source string, scanning, parsing bool) (hadError bool, hadRuntimeError 
 		return true, false
 	}
 
-	if parsing {
-		expr, err := parser.New(tokens).Parse()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return true, false
-		}
-		fmt.Println(expr)
-		return false, false
-	}
-
 	if scanning {
 		return false, false
 	}
 
-	expr, err := parser.New(tokens).Parse()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	stmts, parseErrs := parser.New(tokens).Parse()
+	if len(parseErrs) > 0 {
+		for _, err := range parseErrs {
+			fmt.Fprintln(os.Stderr, err)
+		}
 		return true, false
 	}
 
-	interp := interpreter.New()
-	val, err := interp.Evaluate(expr)
-	if err != nil {
+	if parsing {
+		for _, stmt := range stmts {
+			fmt.Println(stmt)
+		}
+		return false, false
+	}
+
+	if err := interp.Interpret(stmts); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return false, true
 	}
 
-	fmt.Println(interpreter.Stringify(val))
 	return false, false
 }

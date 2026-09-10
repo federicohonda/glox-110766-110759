@@ -18,7 +18,7 @@ func evalSource(t *testing.T, source string) (interpreter.Value, error) {
 		t.Fatalf("error léxico inesperado al escanear %q: %v", source, errs)
 	}
 
-	expr, err := parser.New(tokens).Parse()
+	expr, err := parser.New(tokens).ParseExpression()
 	if err != nil {
 		t.Fatalf("error sintáctico inesperado al parsear %q: %v", source, err)
 	}
@@ -289,6 +289,88 @@ func TestStringify(t *testing.T) {
 			got := interpreter.Stringify(tt.input)
 			if got != tt.expected {
 				t.Errorf("Stringify(%v) = %q, esperado %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func interpretSource(t *testing.T, source string) (*interpreter.Interpreter, error) {
+	t.Helper()
+	tokens, errs := scanner.New(source).Scan()
+	if len(errs) > 0 {
+		t.Fatalf("error léxico inesperado al escanear %q: %v", source, errs)
+	}
+
+	stmts, parseErrs := parser.New(tokens).Parse()
+	if len(parseErrs) > 0 {
+		t.Fatalf("error sintáctico inesperado al parsear %q: %v", source, parseErrs)
+	}
+
+	interp := interpreter.New()
+	err := interp.Interpret(stmts)
+	return interp, err
+}
+
+func TestInterpretStatements(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+	}{
+		{
+			name:   "declaración y uso de variables",
+			source: "var x = 10; var y = x + 5; print y;",
+		},
+		{
+			name:   "declaración sin inicializador",
+			source: "var a; print a;",
+		},
+		{
+			name:   "reasignación de variable",
+			source: "var a = 1; a = 2; print a;",
+		},
+		{
+			name:   "asignación encadenada",
+			source: "var a; var b; a = b = 42; print a; print b;",
+		},
+		{
+			name:   "expression statements",
+			source: "1 + 2; \"hola\"; true;",
+		},
+		{
+			name:   "bloques de código",
+			source: "{ var a = 1; print a; }",
+		},
+		{
+			name:   "bloques anidados",
+			source: "{ { var b = 2; print b; } }",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := interpretSource(t, c.source)
+			if err != nil {
+				t.Fatalf("interpretSource(%q) falló inesperadamente: %v", c.source, err)
+			}
+		})
+	}
+}
+
+func TestInterpretUndefinedVariable(t *testing.T) {
+	errorSources := []string{
+		"print variableNoDefinida;",
+		"variableNoDefinida = 42;",
+		"var a = variableNoDefinida;",
+	}
+
+	for _, src := range errorSources {
+		t.Run(src, func(t *testing.T) {
+			_, err := interpretSource(t, src)
+			if err == nil {
+				t.Fatalf("se esperaba RuntimeError en %q, pero no hubo error", src)
+			}
+			if _, ok := err.(*interpreter.RuntimeError); !ok {
+				t.Errorf("se esperaba *interpreter.RuntimeError, se obtuvo %T: %v", err, err)
 			}
 		})
 	}
