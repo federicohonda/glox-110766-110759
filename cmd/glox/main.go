@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/federicohonda/glox-110766-110759/internal/interpreter"
 	"github.com/federicohonda/glox-110766-110759/internal/parser"
 	"github.com/federicohonda/glox-110766-110759/internal/scanner"
 )
@@ -35,9 +36,12 @@ func runFile(path string, scanning, parsing bool) {
 		os.Exit(1)
 	}
 
-	hadError := run(string(bytes), scanning, parsing)
+	hadError, hadRuntimeError := run(string(bytes), scanning, parsing)
 	if hadError {
 		os.Exit(65)
+	}
+	if hadRuntimeError {
+		os.Exit(70)
 	}
 }
 
@@ -53,7 +57,7 @@ func runPrompt(scanning, parsing bool) {
 	}
 }
 
-func run(source string, scanning, parsing bool) bool {
+func run(source string, scanning, parsing bool) (hadError bool, hadRuntimeError bool) {
 	sc := scanner.New(source)
 	tokens, errs := sc.Scan()
 
@@ -70,17 +74,36 @@ func run(source string, scanning, parsing bool) bool {
 	}
 
 	if len(errs) > 0 {
-		return true
+		return true, false
 	}
 
 	if parsing {
 		expr, err := parser.New(tokens).Parse()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
-			return true
+			return true, false
 		}
 		fmt.Println(expr)
+		return false, false
 	}
 
-	return false
+	if scanning {
+		return false, false
+	}
+
+	expr, err := parser.New(tokens).Parse()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return true, false
+	}
+
+	interp := interpreter.New()
+	val, err := interp.Evaluate(expr)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return false, true
+	}
+
+	fmt.Println(interpreter.Stringify(val))
+	return false, false
 }
