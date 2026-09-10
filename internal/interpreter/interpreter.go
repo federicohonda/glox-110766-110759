@@ -29,16 +29,20 @@ func (e *RuntimeError) Error() string {
 }
 
 // Interpreter ejecuta sentencias y evalúa expresiones del AST.
-// Mantiene el estado global de variables y despacha por tipo de nodo
+// Gestiona el estado de variables mediante una cadena de entornos (Environment)
+// para soportar scoping léxico anidado, y despacha por tipo de nodo
 // mediante type switches idiomáticos de Go.
 type Interpreter struct {
-	globals map[string]Value
+	globals     *Environment
+	environment *Environment
 }
 
 // New crea una nueva instancia de Interpreter con un entorno global limpio.
 func New() *Interpreter {
+	globals := NewEnvironment()
 	return &Interpreter{
-		globals: make(map[string]Value),
+		globals:     globals,
+		environment: globals,
 	}
 }
 
@@ -77,20 +81,32 @@ func (i *Interpreter) Execute(stmt ast.Stmt) error {
 				return err
 			}
 		}
-		i.globals[s.Name.Lexeme] = val
+		i.environment.Define(s.Name.Lexeme, val)
 		return nil
 
 	case *ast.Block:
-		for _, statement := range s.Statements {
-			if err := i.Execute(statement); err != nil {
-				return err
-			}
-		}
-		return nil
+		return i.executeBlock(s.Statements, NewEnclosingEnvironment(i.environment))
 
 	default:
 		return fmt.Errorf("tipo de sentencia no soportado: %T", stmt)
 	}
+}
+
+// executeBlock ejecuta una lista de sentencias en el contexto de un nuevo
+// entorno (env). Restaura de forma garantizada el entorno anterior al terminar.
+func (i *Interpreter) executeBlock(stmts []ast.Stmt, env *Environment) error {
+	previous := i.environment
+	i.environment = env
+	defer func() {
+		i.environment = previous
+	}()
+
+	for _, stmt := range stmts {
+		if err := i.Execute(stmt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Evaluate despacha la evaluación de una expresión según su tipo concreto de nodo.
@@ -103,27 +119,16 @@ func (i *Interpreter) Evaluate(expr ast.Expr) (Value, error) {
 		return i.Evaluate(e.Expression)
 
 	case *ast.Variable:
-		val, ok := i.globals[e.Name.Lexeme]
-		if !ok {
-			return nil, &RuntimeError{
-				Token:   e.Name,
-				Message: fmt.Sprintf("variable no definida '%s'.", e.Name.Lexeme),
-			}
-		}
-		return val, nil
+		return i.environment.Get(e.Name)
 
 	case *ast.Assign:
 		val, err := i.Evaluate(e.Value)
 		if err != nil {
 			return nil, err
 		}
-		if _, ok := i.globals[e.Name.Lexeme]; !ok {
-			return nil, &RuntimeError{
-				Token:   e.Name,
-				Message: fmt.Sprintf("variable no definida '%s'.", e.Name.Lexeme),
-			}
+		if err := i.environment.Assign(e.Name, val); err != nil {
+			return nil, err
 		}
-		i.globals[e.Name.Lexeme] = val
 		return val, nil
 
 	case *ast.Unary:

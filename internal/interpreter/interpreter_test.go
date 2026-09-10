@@ -376,4 +376,84 @@ func TestInterpretUndefinedVariable(t *testing.T) {
 	}
 }
 
+func TestInterpretLexicalScopingAndShadowing(t *testing.T) {
+	// Checkpoint del plan: var x = 1; { var x = 2; print x; } print x;
+	// Además verificamos que una variable local no se fugue al scope exterior
+	cases := []struct {
+		name   string
+		source string
+	}{
+		{
+			name: "checkpoint: shadowing en bloque",
+			source: `
+				var x = 1;
+				{
+					var x = 2;
+					print x;
+				}
+				print x;
+			`,
+		},
+		{
+			name: "scoping anidado en tres niveles",
+			source: `
+				var a = "global a";
+				var b = "global b";
+				var c = "global c";
+				{
+					var a = "outer a";
+					var b = "outer b";
+					{
+						var a = "inner a";
+						print a;
+						print b;
+						print c;
+					}
+					print a;
+					print b;
+					print c;
+				}
+				print a;
+				print b;
+				print c;
+			`,
+		},
+		{
+			name: "reasignar variable exterior desde bloque interno",
+			source: `
+				var x = "inicial";
+				{
+					x = "modificado";
+				}
+				print x;
+			`,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := interpretSource(t, c.source)
+			if err != nil {
+				t.Fatalf("interpretSource(%q) falló inesperadamente: %v", c.source, err)
+			}
+		})
+	}
+}
+
+func TestInterpretInnerVariableNotAccessibleOutside(t *testing.T) {
+	source := `
+		{
+			var local = "secreto";
+		}
+		print local;
+	`
+	_, err := interpretSource(t, source)
+	if err == nil {
+		t.Fatal("se esperaba RuntimeError al intentar acceder a una variable de un bloque ya cerrado")
+	}
+	if _, ok := err.(*interpreter.RuntimeError); !ok {
+		t.Errorf("se esperaba *interpreter.RuntimeError, se obtuvo %T: %v", err, err)
+	}
+}
+
 var _ = math.Abs // asegurar que math pueda compilarse
