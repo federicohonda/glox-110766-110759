@@ -84,6 +84,33 @@ func (i *Interpreter) Execute(stmt ast.Stmt) error {
 		i.environment.Define(s.Name.Lexeme, val)
 		return nil
 
+	case *ast.IfStmt:
+		cond, err := i.Evaluate(s.Condition)
+		if err != nil {
+			return err
+		}
+		if isTruthy(cond) {
+			return i.Execute(s.ThenBranch)
+		} else if s.ElseBranch != nil {
+			return i.Execute(s.ElseBranch)
+		}
+		return nil
+
+	case *ast.WhileStmt:
+		for {
+			cond, err := i.Evaluate(s.Condition)
+			if err != nil {
+				return err
+			}
+			if !isTruthy(cond) {
+				break
+			}
+			if err := i.Execute(s.Body); err != nil {
+				return err
+			}
+		}
+		return nil
+
 	case *ast.Block:
 		return i.executeBlock(s.Statements, NewEnclosingEnvironment(i.environment))
 
@@ -117,6 +144,24 @@ func (i *Interpreter) Evaluate(expr ast.Expr) (Value, error) {
 
 	case *ast.Grouping:
 		return i.Evaluate(e.Expression)
+
+	case *ast.Logical:
+		left, err := i.Evaluate(e.Left)
+		if err != nil {
+			return nil, err
+		}
+
+		if e.Operator.Type == token.OR {
+			if isTruthy(left) {
+				return left, nil
+			}
+		} else { // token.AND
+			if !isTruthy(left) {
+				return left, nil
+			}
+		}
+
+		return i.Evaluate(e.Right)
 
 	case *ast.Variable:
 		return i.environment.Get(e.Name)

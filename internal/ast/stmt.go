@@ -70,3 +70,32 @@ func (b *Block) String() string {
 	sb.WriteString(")")
 	return sb.String()
 }
+
+// IfStmt representa la sentencia condicional `if (<condition>) <thenBranch> else <elseBranch>`.
+// ElseBranch es nil si no hay cláusula else.
+type IfStmt struct {
+	Condition  Expr
+	ThenBranch Stmt
+	ElseBranch Stmt
+}
+
+func (*IfStmt) isStmt() {}
+
+func (s *IfStmt) String() string {
+	if s.ElseBranch == nil {
+		return fmt.Sprintf("(if %s %s)", s.Condition, s.ThenBranch)
+	}
+	return fmt.Sprintf("(if-else %s %s %s)", s.Condition, s.ThenBranch, s.ElseBranch)
+}
+
+// WhileStmt representa un bucle `while (<condition>) <body>`.
+type WhileStmt struct {
+	Condition Expr
+	Body      Stmt
+}
+
+func (*WhileStmt) isStmt() {}
+
+func (w *WhileStmt) String() string {
+	return fmt.Sprintf("(while %s %s)", w.Condition, w.Body)
+}

@@ -456,4 +456,231 @@ func TestInterpretInnerVariableNotAccessibleOutside(t *testing.T) {
 	}
 }
 
+func TestInterpretIfStatement(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+	}{
+		{
+			name:   "if con condición verdadera ejecuta then",
+			source: "var a = 0; if (true) a = 1; print a;",
+		},
+		{
+			name:   "if con condición falsa no ejecuta then",
+			source: "var a = 0; if (false) a = 1; print a;",
+		},
+		{
+			name:   "if-else con condición verdadera ejecuta then y no else",
+			source: "var a = 0; if (true) a = 1; else a = 2; print a;",
+		},
+		{
+			name:   "if-else con condición falsa ejecuta else y no then",
+			source: "var a = 0; if (false) a = 1; else a = 2; print a;",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := interpretSource(t, c.source)
+			if err != nil {
+				t.Fatalf("interpretSource(%q) falló: %v", c.source, err)
+			}
+		})
+	}
+}
+
+func TestInterpretLogicalExpressions(t *testing.T) {
+	tests := []struct {
+		source   string
+		expected any
+	}{
+		{"nil or \"hola\"", "hola"},
+		{"\"primero\" or \"segundo\"", "primero"},
+		{"nil and \"hola\"", nil},
+		{"\"primero\" and \"segundo\"", "segundo"},
+		{"false and true", false},
+		{"true and true", true},
+		{"false or true", true},
+		{"false or false", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.source, func(t *testing.T) {
+			got := mustEval(t, tt.source)
+			if got != tt.expected {
+				t.Errorf("evalSource(%q) = %v, esperado %v", tt.source, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestInterpretShortCircuiting(t *testing.T) {
+	// Checkpoint del plan: un and/or con efectos del lado que no debería evaluarse
+	// no debe ejecutarse (cortocircuito).
+	cases := []struct {
+		name   string
+		source string
+	}{
+		{
+			name: "or cortocircuita cuando izquierdo es verdadero",
+			source: `
+				var ejecutado = false;
+				true or (ejecutado = true);
+				if (ejecutado) print 1 / 0; // si evaluó el lado derecho, falla
+			`,
+		},
+		{
+			name: "and cortocircuita cuando izquierdo es falso",
+			source: `
+				var ejecutado = false;
+				false and (ejecutado = true);
+				if (ejecutado) print 1 / 0; // si evaluó el lado derecho, falla
+			`,
+		},
+		{
+			name: "or evalúa derecho cuando izquierdo es falso",
+			source: `
+				var ejecutado = false;
+				false or (ejecutado = true);
+				if (!ejecutado) print 1 / 0;
+			`,
+		},
+		{
+			name: "and evalúa derecho cuando izquierdo es verdadero",
+			source: `
+				var ejecutado = false;
+				true and (ejecutado = true);
+				if (!ejecutado) print 1 / 0;
+			`,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := interpretSource(t, c.source)
+			if err != nil {
+				t.Fatalf("interpretSource(%q) falló por cortocircuito erróneo: %v", c.source, err)
+			}
+		})
+	}
+}
+
+func TestInterpretWhileLoop(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+	}{
+		{
+			name: "while cuenta sumatoria de 1 a 5",
+			source: `
+				var i = 1;
+				var suma = 0;
+				while (i <= 5) {
+					suma = suma + i;
+					i = i + 1;
+				}
+				if (suma != 15) print 1 / 0;
+			`,
+		},
+		{
+			name: "while con condición falsa no ejecuta cuerpo",
+			source: `
+				var ejecutado = false;
+				while (false) {
+					ejecutado = true;
+				}
+				if (ejecutado) print 1 / 0;
+			`,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := interpretSource(t, c.source)
+			if err != nil {
+				t.Fatalf("interpretSource(%q) falló: %v", c.source, err)
+			}
+		})
+	}
+}
+
+func TestInterpretForLoop(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+	}{
+		{
+			name: "for clásico con sumatoria",
+			source: `
+				var suma = 0;
+				for (var i = 0; i < 10; i = i + 1) {
+					suma = suma + i;
+				}
+				if (suma != 45) print 1 / 0;
+			`,
+		},
+		{
+			name: "for sin inicializador",
+			source: `
+				var suma = 0;
+				var i = 0;
+				for (; i < 5; i = i + 1) {
+					suma = suma + 1;
+				}
+				if (suma != 5) print 1 / 0;
+			`,
+		},
+		{
+			name: "for sin incremento",
+			source: `
+				var count = 0;
+				for (var i = 0; i < 3;) {
+					count = count + 1;
+					i = i + 1;
+				}
+				if (count != 3) print 1 / 0;
+			`,
+		},
+		{
+			name: "for anidados",
+			source: `
+				var total = 0;
+				for (var x = 0; x < 3; x = x + 1) {
+					for (var y = 0; y < 3; y = y + 1) {
+						total = total + 1;
+					}
+				}
+				if (total != 9) print 1 / 0;
+			`,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := interpretSource(t, c.source)
+			if err != nil {
+				t.Fatalf("interpretSource(%q) falló: %v", c.source, err)
+			}
+		})
+	}
+}
+
+func TestInterpretForVariableScoping(t *testing.T) {
+	// La variable declarada en el for debe estar encerrada en su bloque
+	// y no existir fuera de él
+	source := `
+		for (var variableFor = 0; variableFor < 1; variableFor = variableFor + 1) {
+			print variableFor;
+		}
+		print variableFor;
+	`
+	_, err := interpretSource(t, source)
+	if err == nil {
+		t.Fatal("se esperaba RuntimeError al acceder a la variable del for fuera del bucle")
+	}
+	if _, ok := err.(*interpreter.RuntimeError); !ok {
+		t.Errorf("se esperaba *interpreter.RuntimeError, se obtuvo %T: %v", err, err)
+	}
+}
+
 var _ = math.Abs // asegurar que math pueda compilarse
