@@ -129,3 +129,31 @@ func TestEnvironmentNestedAssignment(t *testing.T) {
 		t.Errorf("parent.Get('x') tras reasignar en child = %v, esperado 99.0", valParent)
 	}
 }
+
+func TestEnvironmentGetAtAndAssignAt(t *testing.T) {
+	// Tres niveles con la misma variable 'x' en cada uno: la distancia elige
+	// exactamente cuál se lee o escribe, sin buscar por la cadena.
+	global := interpreter.NewEnvironment()
+	global.Define("x", "global")
+	middle := interpreter.NewEnclosingEnvironment(global)
+	middle.Define("x", "middle")
+	inner := interpreter.NewEnclosingEnvironment(middle)
+	inner.Define("x", "inner")
+
+	for distance, want := range []string{"inner", "middle", "global"} {
+		if got := inner.GetAt(distance, "x"); got != want {
+			t.Errorf("inner.GetAt(%d, 'x') = %v, esperado %v", distance, got, want)
+		}
+	}
+
+	inner.AssignAt(1, "x", "middle modificado")
+	if got := inner.GetAt(0, "x"); got != "inner" {
+		t.Errorf("AssignAt(1) no debería tocar el nivel 0, quedó %v", got)
+	}
+	if got, _ := middle.Get(makeToken("x")); got != "middle modificado" {
+		t.Errorf("middle.Get('x') tras AssignAt(1) = %v, esperado 'middle modificado'", got)
+	}
+	if got, _ := global.Get(makeToken("x")); got != "global" {
+		t.Errorf("AssignAt(1) no debería tocar el global, quedó %v", got)
+	}
+}

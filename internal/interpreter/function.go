@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/federicohonda/glox-110766-110759/internal/ast"
-	"github.com/federicohonda/glox-110766-110759/internal/token"
 )
 
 // Callable es cualquier valor de Lox que se puede invocar con `valor(args)`.
@@ -31,10 +30,11 @@ func (f *Function) Arity() int {
 // que ya devuelven Execute y executeBlock (atravesando bloques, if y while
 // sin que ninguno tenga que saber de él) hasta que Function.Call lo intercepta.
 type returnSignal struct {
-	keyword token.Token
-	value   Value
+	value Value
 }
 
+// Error solo se vería si el programa no pasó por el resolver, que es quien
+// rechaza de antemano cualquier `return` escrito fuera de una función.
 func (r *returnSignal) Error() string {
 	return "return fuera de una función"
 }

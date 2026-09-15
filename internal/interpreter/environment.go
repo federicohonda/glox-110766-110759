@@ -53,6 +53,27 @@ func (e *Environment) Get(name token.Token) (Value, error) {
 	}
 }
 
+// ancestor devuelve el entorno que está `distance` niveles hacia afuera.
+func (e *Environment) ancestor(distance int) *Environment {
+	env := e
+	for range distance {
+		env = env.enclosing
+	}
+	return env
+}
+
+// GetAt lee una variable local a una distancia ya calculada por el resolver.
+// No hace falta chequear que exista: el resolver garantiza que la
+// declaración está exactamente a esa distancia.
+func (e *Environment) GetAt(distance int, name string) Value {
+	return e.ancestor(distance).values[name]
+}
+
+// AssignAt asigna una variable local a una distancia ya calculada por el resolver.
+func (e *Environment) AssignAt(distance int, name string, value Value) {
+	e.ancestor(distance).values[name] = value
+}
+
 // Assign asigna un nuevo valor a una variable ya declarada.
 // Primero busca en el ámbito actual; si no existe, busca en los ámbitos padres.
 // Si no se encuentra en ningún nivel, produce un RuntimeError.
