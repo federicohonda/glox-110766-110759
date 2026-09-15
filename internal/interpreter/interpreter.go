@@ -35,6 +35,10 @@ func (e *RuntimeError) Error() string {
 type Interpreter struct {
 	globals     *Environment
 	environment *Environment
+	// locals guarda, para cada uso de una variable local, a cuántos entornos
+	// de distancia está su declaración (lo calcula el resolver). Las
+	// variables que no están en el mapa son globales.
+	locals map[ast.Expr]int
 }
 
 // New crea una nueva instancia de Interpreter con un entorno global limpio.
@@ -43,23 +47,24 @@ func New() *Interpreter {
 	return &Interpreter{
 		globals:     globals,
 		environment: globals,
+		locals:      make(map[ast.Expr]int),
 	}
 }
 
-// Interpret ejecuta una lista de sentencias en secuencia. Si alguna produce
-// un error de runtime, se detiene inmediatamente y devuelve dicho error.
+// Resolve incorpora las distancias calculadas por el resolver. Se acumulan en
+// vez de reemplazarse para que en el REPL sigan valiendo las de las líneas
+// anteriores (por ejemplo, las del cuerpo de una función declarada antes).
+func (i *Interpreter) Resolve(locals map[ast.Expr]int) {
+	for expr, distance := range locals {
+		i.locals[expr] = distance
+	}
+}
+
+// Interpret ejecuta una lista de sentencias ya resueltas, en secuencia. Si
+// alguna produce un error de runtime, se detiene y devuelve dicho error.
 func (i *Interpreter) Interpret(stmts []ast.Stmt) error {
 	for _, stmt := range stmts {
-		err := i.Execute(stmt)
-		// Una señal de return que llega hasta acá no pasó por ninguna
-		// Function.Call: es un `return` escrito fuera de toda función.
-		if ret, ok := err.(*returnSignal); ok {
-			return &RuntimeError{
-				Token:   ret.keyword,
-				Message: "no se puede usar 'return' fuera de una función.",
-			}
-		}
-		if err != nil {
+		if err := i.Execute(stmt); err != nil {
 			return err
 		}
 	}
@@ -136,7 +141,7 @@ func (i *Interpreter) Execute(stmt ast.Stmt) error {
 				return err
 			}
 		}
-		return &returnSignal{keyword: s.Keyword, value: val}
+		return &returnSignal{value: val}
 
 	default:
 		return fmt.Errorf("tipo de sentencia no soportado: %T", stmt)
@@ -188,7 +193,10 @@ func (i *Interpreter) Evaluate(expr ast.Expr) (Value, error) {
 		return i.Evaluate(e.Right)
 
 	case *ast.Variable:
-		return i.environment.Get(e.Name)
+		if distance, ok := i.locals[e]; ok {
+			return i.environment.GetAt(distance, e.Name.Lexeme), nil
+		}
+		return i.globals.Get(e.Name)
 
 	case *ast.Call:
 		// Regla de oro: se evalúan el callee y todos los argumentos (en orden)
@@ -227,7 +235,11 @@ func (i *Interpreter) Evaluate(expr ast.Expr) (Value, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := i.environment.Assign(e.Name, val); err != nil {
+		if distance, ok := i.locals[e]; ok {
+			i.environment.AssignAt(distance, e.Name.Lexeme, val)
+			return val, nil
+		}
+		if err := i.globals.Assign(e.Name, val); err != nil {
 			return nil, err
 		}
 		return val, nil

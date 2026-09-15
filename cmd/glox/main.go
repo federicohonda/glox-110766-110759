@@ -8,6 +8,7 @@ import (
 
 	"github.com/federicohonda/glox-110766-110759/internal/interpreter"
 	"github.com/federicohonda/glox-110766-110759/internal/parser"
+	"github.com/federicohonda/glox-110766-110759/internal/resolver"
 	"github.com/federicohonda/glox-110766-110759/internal/scanner"
 )
 
@@ -97,6 +98,15 @@ func run(source string, scanning, parsing bool, interp *interpreter.Interpreter)
 		}
 		return false, false
 	}
+
+	locals, resolveErrs := resolver.Resolve(stmts)
+	if len(resolveErrs) > 0 {
+		for _, err := range resolveErrs {
+			fmt.Fprintln(os.Stderr, err)
+		}
+		return true, false
+	}
+	interp.Resolve(locals)
 
 	if err := interp.Interpret(stmts); err != nil {
 		fmt.Fprintln(os.Stderr, err)

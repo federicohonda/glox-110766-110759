@@ -195,6 +195,64 @@ func TestInterpretClosures(t *testing.T) {
 	}
 }
 
+// Checkpoint de la Parte 4: con el resolver, una función ve siempre la
+// variable que existía cuando se declaró, aunque después se redeclare otra
+// con el mismo nombre en el mismo bloque.
+func TestInterpretClosureBugFixed(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+	}{
+		{
+			name: "ejemplo del plan: global/global",
+			source: `
+				var visto = "";
+				var a = "global";
+				{
+					fun showA() { visto = visto + a + ";"; }
+					showA();
+					var a = "block";
+					showA();
+				}
+				if (visto != "global;global;") print 1 / 0;
+			`,
+		},
+		{
+			name: "CLOSURE BUG de las pruebas de la cátedra",
+			source: `
+				var a = "global";
+				{
+					fun ret_a() { return a; }
+					if (ret_a() != "global") print 1 / 0;
+					var a = "block";
+					if (ret_a() != "global") print 1 / 0;
+				}
+			`,
+		},
+		{
+			name: "la asignación también respeta la variable capturada",
+			source: `
+				var a = "global";
+				{
+					fun setA() { a = "cambiada"; }
+					var a = "block";
+					setA();
+					if (a != "block") print 1 / 0;
+				}
+				if (a != "cambiada") print 1 / 0;
+			`,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := interpretSource(t, c.source); err != nil {
+				t.Fatalf("interpretSource falló: %v", err)
+			}
+		})
+	}
+}
+
 func TestInterpretCallErrors(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -393,9 +451,8 @@ func TestInterpretReturnErrors(t *testing.T) {
 		source  string
 		wantMsg string
 	}{
-		{"return en el nivel global", "return 1;", "no se puede usar 'return' fuera de una función"},
-		{"return dentro de un bloque global", "{ return; }", "no se puede usar 'return' fuera de una función"},
-		{"return dentro de un while global", "while (true) { return; }", "no se puede usar 'return' fuera de una función"},
+		// Un `return` fuera de una función es un error estático: lo prueba el
+		// paquete resolver, porque ni siquiera llega a ejecutarse.
 		{"error al evaluar el valor del return", "fun f() { return 1 / 0; } f();", "división por cero"},
 	}
 

@@ -7,6 +7,7 @@ import (
 	"github.com/federicohonda/glox-110766-110759/internal/ast"
 	"github.com/federicohonda/glox-110766-110759/internal/interpreter"
 	"github.com/federicohonda/glox-110766-110759/internal/parser"
+	"github.com/federicohonda/glox-110766-110759/internal/resolver"
 	"github.com/federicohonda/glox-110766-110759/internal/scanner"
 	"github.com/federicohonda/glox-110766-110759/internal/token"
 )
@@ -306,7 +307,13 @@ func interpretSource(t *testing.T, source string) (*interpreter.Interpreter, err
 		t.Fatalf("error sintáctico inesperado al parsear %q: %v", source, parseErrs)
 	}
 
+	locals, resolveErrs := resolver.Resolve(stmts)
+	if len(resolveErrs) > 0 {
+		t.Fatalf("error semántico inesperado al resolver %q: %v", source, resolveErrs)
+	}
+
 	interp := interpreter.New()
+	interp.Resolve(locals)
 	err := interp.Interpret(stmts)
 	return interp, err
 }
