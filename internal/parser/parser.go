@@ -26,24 +26,39 @@ func (e *ParseError) Error() string {
 // programa de Lox, siguiendo la gramática de precedencia y sentencias:
 //
 //	program        → declaration* EOF
-//	declaration    → varDecl | statement
+//	declaration    → funDecl | varDecl | statement
+//	funDecl        → "fun" function
+//	function       → IDENTIFIER "(" parameters? ")" block
+//	parameters     → IDENTIFIER ( "," IDENTIFIER )*
 //	varDecl        → "var" IDENTIFIER ( "=" expression )? ";"
-//	statement      → printStmt | block | exprStmt
+//	statement      → exprStmt | forStmt | ifStmt | printStmt | whileStmt | block
+//	forStmt        → "for" "(" ( varDecl | exprStmt | ";" ) expression? ";" expression? ")" statement
+//	ifStmt         → "if" "(" expression ")" statement ( "else" statement )?
 //	printStmt      → "print" expression ";"
+//	whileStmt      → "while" "(" expression ")" statement
 //	exprStmt       → expression ";"
 //	block          → "{" declaration* "}"
 //	expression     → assignment
-//	assignment     → IDENTIFIER "=" assignment | equality
+//	assignment     → IDENTIFIER "=" assignment | logicOr
+//	logicOr        → logicAnd ( "or" logicAnd )*
+//	logicAnd       → equality ( "and" equality )*
 //	equality       → comparison ( ( "!=" | "==" ) comparison )*
 //	comparison     → term ( ( ">" | ">=" | "<" | "<=" ) term )*
 //	term           → factor ( ( "-" | "+" ) factor )*
 //	factor         → unary ( ( "/" | "*" | "%" ) unary )*
-//	unary          → ( "!" | "-" ) unary | primary
+//	unary          → ( "!" | "-" ) unary | call
+//	call           → primary ( "(" arguments? ")" )*
+//	arguments      → expression ( "," expression )*
 //	primary        → NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")" | IDENTIFIER
 type Parser struct {
 	tokens  []token.Token
 	current int
+	errors  []error
 }
+
+// maxArgs es el máximo de parámetros de una función y de argumentos de una
+// llamada, el mismo límite que fija la especificación de Lox.
+const maxArgs = 255
 
 func New(tokens []token.Token) *Parser {
 	return &Parser{tokens: tokens}
@@ -54,20 +69,19 @@ func New(tokens []token.Token) *Parser {
 // posibles y devolver la lista de errores encontrados.
 func (p *Parser) Parse() ([]ast.Stmt, []error) {
 	var statements []ast.Stmt
-	var errors []error
 
 	for !p.isAtEnd() {
 		stmt, err := p.declaration()
 		if err != nil {
-			errors = append(errors, err)
+			p.errors = append(p.errors, err)
 			p.synchronize()
 		} else {
 			statements = append(statements, stmt)
 		}
 	}
 
-	if len(errors) > 0 {
-		return nil, errors
+	if len(p.errors) > 0 {
+		return nil, p.errors
 	}
 	return statements, nil
 }
@@ -84,7 +98,11 @@ func (p *Parser) ParseExpression() (expr ast.Expr, err error) {
 			err = parseErr
 		}
 	}()
-	return p.expression(), nil
+	expr = p.expression()
+	if len(p.errors) > 0 {
+		return nil, p.errors[0]
+	}
+	return expr, nil
 }
 
 func (p *Parser) declaration() (stmt ast.Stmt, err error) {
@@ -98,10 +116,36 @@ func (p *Parser) declaration() (stmt ast.Stmt, err error) {
 		}
 	}()
 
+	if p.match(token.FUN) {
+		return p.function(), nil
+	}
 	if p.match(token.VAR) {
 		return p.varDeclaration(), nil
 	}
 	return p.statement(), nil
+}
+
+func (p *Parser) function() ast.Stmt {
+	name := p.consume(token.IDENTIFIER, "se esperaba el nombre de la función.")
+	p.consume(token.LEFT_PAREN, "se esperaba '(' después del nombre de la función.")
+
+	var params []token.Token
+	if !p.check(token.RIGHT_PAREN) {
+		for {
+			if len(params) >= maxArgs {
+				p.report(p.peek(), fmt.Sprintf("una función no puede tener más de %d parámetros.", maxArgs))
+			}
+			params = append(params, p.consume(token.IDENTIFIER, "se esperaba el nombre de un parámetro."))
+			if !p.match(token.COMMA) {
+				break
+			}
+		}
+	}
+	p.consume(token.RIGHT_PAREN, "se esperaba ')' después de los parámetros.")
+
+	p.consume(token.LEFT_BRACE, "se esperaba '{' antes del cuerpo de la función.")
+	body := p.block()
+	return &ast.FunDecl{Name: name, Params: params, Body: body}
 }
 
 func (p *Parser) varDeclaration() ast.Stmt {
@@ -338,7 +382,32 @@ func (p *Parser) unary() ast.Expr {
 		right := p.unary()
 		return &ast.Unary{Operator: operator, Right: right}
 	}
-	return p.primary()
+	return p.call()
+}
+
+func (p *Parser) call() ast.Expr {
+	expr := p.primary()
+	for p.match(token.LEFT_PAREN) {
+		expr = p.finishCall(expr)
+	}
+	return expr
+}
+
+func (p *Parser) finishCall(callee ast.Expr) ast.Expr {
+	var args []ast.Expr
+	if !p.check(token.RIGHT_PAREN) {
+		for {
+			if len(args) >= maxArgs {
+				p.report(p.peek(), fmt.Sprintf("una llamada no puede tener más de %d argumentos.", maxArgs))
+			}
+			args = append(args, p.expression())
+			if !p.match(token.COMMA) {
+				break
+			}
+		}
+	}
+	paren := p.consume(token.RIGHT_PAREN, "se esperaba ')' después de los argumentos.")
+	return &ast.Call{Callee: callee, Paren: paren, Arguments: args}
 }
 
 func (p *Parser) primary() ast.Expr {
@@ -419,6 +488,13 @@ func (p *Parser) consume(t token.TokenType, message string) token.Token {
 		return p.advance()
 	}
 	panic(p.errorAt(p.peek(), message))
+}
+
+// report registra un error de sintaxis sin entrar en modo pánico: sirve para
+// errores en los que el parser no queda confundido (como pasarse del límite de
+// argumentos) y puede seguir parseando normalmente sin sincronizar.
+func (p *Parser) report(tok token.Token, message string) {
+	p.errors = append(p.errors, p.errorAt(tok, message))
 }
 
 func (p *Parser) errorAt(tok token.Token, message string) *ParseError {

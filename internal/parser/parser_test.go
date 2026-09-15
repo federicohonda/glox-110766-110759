@@ -1,6 +1,7 @@
 package parser_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -63,6 +64,14 @@ func TestParserBuildsExpectedTree(t *testing.T) {
 		{"and lógico", "a and b", "(and a b)"},
 		{"precedencia and sobre or", "a or b and c", "(or a (and b c))"},
 		{"precedencia and sobre or inversa", "a and b or c", "(or (and a b) c)"},
+		{"llamada sin argumentos", "f()", "(call f)"},
+		{"llamada con argumentos", "suma(1, 2)", "(call suma 1 2)"},
+		{"argumentos son expresiones completas", "f(1 + 2, a = 3)", "(call f (+ 1 2) (= a 3))"},
+		{"llamadas encadenadas", "f(1)(2)", "(call (call f 1) 2)"},
+		{"llamada con más precedencia que unario", "-f()", "(- (call f))"},
+		{"llamada con más precedencia que binario", "f() + g(1)", "(+ (call f) (call g 1))"},
+		{"llamada anidada como argumento", "f(g(1))", "(call f (call g 1))"},
+		{"llamada sobre agrupación", "(f)()", "(call (group f))"},
 	}
 
 	for _, c := range cases {
@@ -146,6 +155,26 @@ func TestParserStatements(t *testing.T) {
 			source: "for (;;) print 1;",
 			want:   "(while true (print 1))",
 		},
+		{
+			name:   "checkpoint: declaración e invocación",
+			source: "fun suma(a, b) { print a + b; } suma(1, 2);",
+			want:   "(fun suma (a b) (print (+ a b))) (expr (call suma 1 2))",
+		},
+		{
+			name:   "función sin parámetros y cuerpo vacío",
+			source: "fun nada() {}",
+			want:   "(fun nada ())",
+		},
+		{
+			name:   "función anidada dentro de otra",
+			source: "fun afuera() { fun adentro() { print 1; } adentro(); }",
+			want:   "(fun afuera () (fun adentro () (print 1)) (expr (call adentro)))",
+		},
+		{
+			name:   "función declarada dentro de un bloque",
+			source: "{ fun f(x) { print x; } }",
+			want:   "(block (fun f (x) (print x)))",
+		},
 	}
 
 	for _, c := range cases {
@@ -177,6 +206,13 @@ func TestParserReportsSyntaxErrors(t *testing.T) {
 		{"while con paréntesis sin cerrar", "while (true print 1;"},
 		{"for sin paréntesis", "for ; ; print 1;"},
 		{"for sin primer punto y coma", "for (var i = 0 i < 5; i = i + 1) print i;"},
+		{"fun sin nombre", "fun (a) { }"},
+		{"fun sin paréntesis de parámetros", "fun f { }"},
+		{"parámetro que no es identificador", "fun f(1) { }"},
+		{"coma colgando en parámetros", "fun f(a,) { }"},
+		{"fun sin cuerpo entre llaves", "fun f() print 1;"},
+		{"llamada sin cerrar", "f(1, 2;"},
+		{"coma colgando en argumentos", "f(1,);"},
 	}
 
 	for _, c := range cases {
@@ -190,6 +226,43 @@ func TestParserReportsSyntaxErrors(t *testing.T) {
 			_, errs := p.Parse()
 			if len(errs) == 0 {
 				t.Fatalf("esperaba un error de sintaxis parseando %q, no obtuve ninguno", c.source)
+			}
+		})
+	}
+}
+
+// joinN arma una lista separada por comas de n elementos generados por item.
+func joinN(n int, item func(i int) string) string {
+	parts := make([]string, n)
+	for i := range parts {
+		parts[i] = item(i)
+	}
+	return strings.Join(parts, ", ")
+}
+
+func TestParserArgumentLimit(t *testing.T) {
+	cases := []struct {
+		name       string
+		source     string
+		wantErrors int
+	}{
+		{"255 argumentos es válido", "f(" + joinN(255, func(int) string { return "1" }) + ");", 0},
+		{"256 argumentos da un único error", "f(" + joinN(256, func(int) string { return "1" }) + ");", 1},
+		{"255 parámetros es válido", "fun f(" + joinN(255, func(i int) string { return fmt.Sprintf("p%d", i) }) + ") {}", 0},
+		{"256 parámetros da un único error", "fun f(" + joinN(256, func(i int) string { return fmt.Sprintf("p%d", i) }) + ") {}", 1},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tokens, scanErrs := scanner.New(c.source).Scan()
+			if len(scanErrs) > 0 {
+				t.Fatalf("error de escaneo inesperado: %v", scanErrs)
+			}
+			_, errs := parser.New(tokens).Parse()
+			// Un único error prueba que pasarse del límite no dispara la
+			// sincronización ni errores en cascada.
+			if len(errs) != c.wantErrors {
+				t.Fatalf("esperaba %d errores, obtuve %d: %v", c.wantErrors, len(errs), errs)
 			}
 		})
 	}

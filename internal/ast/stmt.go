@@ -99,3 +99,29 @@ func (*WhileStmt) isStmt() {}
 func (w *WhileStmt) String() string {
 	return fmt.Sprintf("(while %s %s)", w.Condition, w.Body)
 }
+
+// FunDecl representa la declaración de una función
+// `fun <name>(<params>) { <body> }`.
+type FunDecl struct {
+	Name   token.Token
+	Params []token.Token
+	Body   []Stmt
+}
+
+func (*FunDecl) isStmt() {}
+
+func (f *FunDecl) String() string {
+	params := make([]string, len(f.Params))
+	for i, p := range f.Params {
+		params[i] = p.Lexeme
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "(fun %s (%s)", f.Name.Lexeme, strings.Join(params, " "))
+	for _, stmt := range f.Body {
+		sb.WriteString(" ")
+		sb.WriteString(stmt.String())
+	}
+	sb.WriteString(")")
+	return sb.String()
+}
