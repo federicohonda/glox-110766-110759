@@ -114,6 +114,10 @@ func (i *Interpreter) Execute(stmt ast.Stmt) error {
 	case *ast.Block:
 		return i.executeBlock(s.Statements, NewEnclosingEnvironment(i.environment))
 
+	case *ast.FunDecl:
+		i.environment.Define(s.Name.Lexeme, &Function{Declaration: s, Closure: i.environment})
+		return nil
+
 	default:
 		return fmt.Errorf("tipo de sentencia no soportado: %T", stmt)
 	}
@@ -165,6 +169,38 @@ func (i *Interpreter) Evaluate(expr ast.Expr) (Value, error) {
 
 	case *ast.Variable:
 		return i.environment.Get(e.Name)
+
+	case *ast.Call:
+		// Regla de oro: se evalúan el callee y todos los argumentos (en orden)
+		// antes de chequear si el valor es invocable o si la aridad coincide.
+		callee, err := i.Evaluate(e.Callee)
+		if err != nil {
+			return nil, err
+		}
+
+		args := make([]Value, 0, len(e.Arguments))
+		for _, argExpr := range e.Arguments {
+			arg, err := i.Evaluate(argExpr)
+			if err != nil {
+				return nil, err
+			}
+			args = append(args, arg)
+		}
+
+		fn, ok := callee.(Callable)
+		if !ok {
+			return nil, &RuntimeError{
+				Token:   e.Paren,
+				Message: fmt.Sprintf("solo se pueden llamar funciones, se obtuvo: %v", Stringify(callee)),
+			}
+		}
+		if len(args) != fn.Arity() {
+			return nil, &RuntimeError{
+				Token:   e.Paren,
+				Message: fmt.Sprintf("se esperaban %d argumentos pero se recibieron %d.", fn.Arity(), len(args)),
+			}
+		}
+		return fn.Call(i, args)
 
 	case *ast.Assign:
 		val, err := i.Evaluate(e.Value)
