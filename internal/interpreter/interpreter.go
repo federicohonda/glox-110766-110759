@@ -50,7 +50,16 @@ func New() *Interpreter {
 // un error de runtime, se detiene inmediatamente y devuelve dicho error.
 func (i *Interpreter) Interpret(stmts []ast.Stmt) error {
 	for _, stmt := range stmts {
-		if err := i.Execute(stmt); err != nil {
+		err := i.Execute(stmt)
+		// Una señal de return que llega hasta acá no pasó por ninguna
+		// Function.Call: es un `return` escrito fuera de toda función.
+		if ret, ok := err.(*returnSignal); ok {
+			return &RuntimeError{
+				Token:   ret.keyword,
+				Message: "no se puede usar 'return' fuera de una función.",
+			}
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -117,6 +126,17 @@ func (i *Interpreter) Execute(stmt ast.Stmt) error {
 	case *ast.FunDecl:
 		i.environment.Define(s.Name.Lexeme, &Function{Declaration: s, Closure: i.environment})
 		return nil
+
+	case *ast.ReturnStmt:
+		var val Value
+		if s.Value != nil {
+			var err error
+			val, err = i.Evaluate(s.Value)
+			if err != nil {
+				return err
+			}
+		}
+		return &returnSignal{keyword: s.Keyword, value: val}
 
 	default:
 		return fmt.Errorf("tipo de sentencia no soportado: %T", stmt)

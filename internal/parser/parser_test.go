@@ -175,6 +175,21 @@ func TestParserStatements(t *testing.T) {
 			source: "{ fun f(x) { print x; } }",
 			want:   "(block (fun f (x) (print x)))",
 		},
+		{
+			name:   "checkpoint original del plan con return",
+			source: "fun suma(a, b) { return a + b; } suma(1, 2);",
+			want:   "(fun suma (a b) (return (+ a b))) (expr (call suma 1 2))",
+		},
+		{
+			name:   "return sin valor",
+			source: "fun f() { return; }",
+			want:   "(fun f () (return))",
+		},
+		{
+			name:   "return dentro de if",
+			source: "fun f(n) { if (n <= 1) return n; return 0; }",
+			want:   "(fun f (n) (if (<= n 1) (return n)) (return 0))",
+		},
 	}
 
 	for _, c := range cases {
@@ -213,6 +228,7 @@ func TestParserReportsSyntaxErrors(t *testing.T) {
 		{"fun sin cuerpo entre llaves", "fun f() print 1;"},
 		{"llamada sin cerrar", "f(1, 2;"},
 		{"coma colgando en argumentos", "f(1,);"},
+		{"return sin punto y coma", "fun f() { return 1 }"},
 	}
 
 	for _, c := range cases {

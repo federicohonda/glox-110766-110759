@@ -31,7 +31,8 @@ func (e *ParseError) Error() string {
 //	function       → IDENTIFIER "(" parameters? ")" block
 //	parameters     → IDENTIFIER ( "," IDENTIFIER )*
 //	varDecl        → "var" IDENTIFIER ( "=" expression )? ";"
-//	statement      → exprStmt | forStmt | ifStmt | printStmt | whileStmt | block
+//	statement      → exprStmt | forStmt | ifStmt | printStmt | returnStmt | whileStmt | block
+//	returnStmt     → "return" expression? ";"
 //	forStmt        → "for" "(" ( varDecl | exprStmt | ";" ) expression? ";" expression? ")" statement
 //	ifStmt         → "if" "(" expression ")" statement ( "else" statement )?
 //	printStmt      → "print" expression ";"
@@ -170,6 +171,9 @@ func (p *Parser) statement() ast.Stmt {
 	if p.match(token.PRINT) {
 		return p.printStatement()
 	}
+	if p.match(token.RETURN) {
+		return p.returnStatement()
+	}
 	if p.match(token.WHILE) {
 		return p.whileStatement()
 	}
@@ -268,6 +272,16 @@ func (p *Parser) printStatement() ast.Stmt {
 	value := p.expression()
 	p.consume(token.SEMICOLON, "se esperaba ';' después del valor a imprimir.")
 	return &ast.PrintStmt{Expression: value}
+}
+
+func (p *Parser) returnStatement() ast.Stmt {
+	keyword := p.previous()
+	var value ast.Expr
+	if !p.check(token.SEMICOLON) {
+		value = p.expression()
+	}
+	p.consume(token.SEMICOLON, "se esperaba ';' después del return.")
+	return &ast.ReturnStmt{Keyword: keyword, Value: value}
 }
 
 func (p *Parser) expressionStatement() ast.Stmt {

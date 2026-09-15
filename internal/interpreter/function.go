@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/federicohonda/glox-110766-110759/internal/ast"
+	"github.com/federicohonda/glox-110766-110759/internal/token"
 )
 
 // Callable es cualquier valor de Lox que se puede invocar con `valor(args)`.
@@ -25,6 +26,19 @@ func (f *Function) Arity() int {
 	return len(f.Declaration.Params)
 }
 
+// returnSignal no es un error real: es la forma en que un `return` corta la
+// ejecución del cuerpo de una función. Viaja hacia arriba por el mismo `error`
+// que ya devuelven Execute y executeBlock (atravesando bloques, if y while
+// sin que ninguno tenga que saber de él) hasta que Function.Call lo intercepta.
+type returnSignal struct {
+	keyword token.Token
+	value   Value
+}
+
+func (r *returnSignal) Error() string {
+	return "return fuera de una función"
+}
+
 // Call ejecuta el cuerpo en un entorno nuevo por invocación, cuyo padre es la
 // closure. Que sea nuevo en cada llamada es lo que hace que la recursión y
 // las llamadas repetidas no compartan parámetros ni variables locales.
@@ -34,10 +48,11 @@ func (f *Function) Call(interp *Interpreter, args []Value) (Value, error) {
 		env.Define(param.Lexeme, args[i])
 	}
 
-	if err := interp.executeBlock(f.Declaration.Body, env); err != nil {
-		return nil, err
+	err := interp.executeBlock(f.Declaration.Body, env)
+	if ret, ok := err.(*returnSignal); ok {
+		return ret.value, nil
 	}
-	return nil, nil
+	return nil, err
 }
 
 func (f *Function) String() string {

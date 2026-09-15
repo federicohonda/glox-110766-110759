@@ -100,6 +100,22 @@ func (w *WhileStmt) String() string {
 	return fmt.Sprintf("(while %s %s)", w.Condition, w.Body)
 }
 
+// ReturnStmt representa `return <value>;`. Value es nil en un `return;` sin
+// valor. Keyword se guarda para reportar la línea de los errores.
+type ReturnStmt struct {
+	Keyword token.Token
+	Value   Expr
+}
+
+func (*ReturnStmt) isStmt() {}
+
+func (r *ReturnStmt) String() string {
+	if r.Value == nil {
+		return "(return)"
+	}
+	return fmt.Sprintf("(return %s)", r.Value)
+}
+
 // FunDecl representa la declaración de una función
 // `fun <name>(<params>) { <body> }`.
 type FunDecl struct {

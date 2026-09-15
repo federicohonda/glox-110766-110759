@@ -9,9 +9,10 @@ import (
 	"github.com/federicohonda/glox-110766-110759/internal/token"
 )
 
-// Todavía no existe `return`, así que los resultados se sacan de las
-// funciones asignando a variables de afuera. Igual que en el resto de los
-// tests, si algo no da lo esperado se fuerza un error con `print 1 / 0`.
+// Estos casos sacan los resultados asignando a variables de afuera, para
+// probar las llamadas y las closures sin depender de `return`. Igual que en el
+// resto de los tests, si algo no da lo esperado se fuerza un error con
+// `print 1 / 0`.
 func TestInterpretFunctionCalls(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -214,6 +215,188 @@ func TestInterpretCallErrors(t *testing.T) {
 			`123(1 / 0);`,
 			"división por cero",
 		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := interpretSource(t, c.source)
+			if err == nil {
+				t.Fatalf("esperaba un error de runtime en %q", c.source)
+			}
+			if !strings.Contains(err.Error(), c.wantMsg) {
+				t.Fatalf("error = %q, esperaba que contenga %q", err, c.wantMsg)
+			}
+		})
+	}
+}
+
+func TestInterpretReturn(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+	}{
+		{
+			name: "devuelve un valor",
+			source: `
+				fun suma(a, b) { return a + b; }
+				if (suma(1, 2) != 3) print 1 / 0;
+			`,
+		},
+		{
+			name: "checkpoint: factorial recursivo corta en el caso base",
+			source: `
+				fun factorial(n) {
+					if (n <= 1) return 1;
+					return n * factorial(n - 1);
+				}
+				if (factorial(1) != 1) print 1 / 0;
+				if (factorial(5) != 120) print 1 / 0;
+				if (factorial(10) != 3628800) print 1 / 0;
+			`,
+		},
+		{
+			name: "fibonacci recursivo",
+			source: `
+				fun fib(n) {
+					if (n <= 1) return n;
+					return fib(n - 2) + fib(n - 1);
+				}
+				if (fib(20) != 6765) print 1 / 0;
+			`,
+		},
+		{
+			name: "return sin valor devuelve nil",
+			source: `
+				fun vacio() { return; }
+				if (vacio() != nil) print 1 / 0;
+			`,
+		},
+		{
+			name: "el código después del return no se ejecuta",
+			source: `
+				fun f() {
+					return "antes";
+					print 1 / 0;
+				}
+				if (f() != "antes") print 1 / 0;
+			`,
+		},
+		{
+			name: "atraviesa bloques anidados",
+			source: `
+				fun f() {
+					{
+						{
+							{ return "profundo"; }
+						}
+					}
+					return "no debería llegar";
+				}
+				if (f() != "profundo") print 1 / 0;
+			`,
+		},
+		{
+			name: "corta un while en el medio",
+			source: `
+				var vueltas = 0;
+				fun buscar(objetivo) {
+					var i = 0;
+					while (true) {
+						vueltas = vueltas + 1;
+						if (i == objetivo) return i;
+						i = i + 1;
+					}
+				}
+				if (buscar(4) != 4) print 1 / 0;
+				if (vueltas != 5) print 1 / 0;
+			`,
+		},
+		{
+			name: "corta un for en el medio",
+			source: `
+				fun primerMultiplo(n) {
+					for (var i = 1; i < 100; i = i + 1) {
+						if (i % n == 0) return i;
+					}
+					return nil;
+				}
+				if (primerMultiplo(7) != 7) print 1 / 0;
+			`,
+		},
+		{
+			name: "el entorno de quien llama se restaura tras el return",
+			source: `
+				var x = "global";
+				fun f() {
+					var x = "local";
+					{ var x = "bloque"; return x; }
+				}
+				var r = f();
+				if (r != "bloque") print 1 / 0;
+				if (x != "global") print 1 / 0;
+			`,
+		},
+		{
+			name: "devolver una closure (make_counter de la cátedra)",
+			source: `
+				fun makeCounter() {
+					var i = 0;
+					fun count() {
+						i = i + 1;
+						return i;
+					}
+					return count;
+				}
+				var a = makeCounter();
+				var b = makeCounter();
+				if (a() != 1) print 1 / 0;
+				if (a() != 2) print 1 / 0;
+				if (b() != 1) print 1 / 0;
+				if (a() != 3) print 1 / 0;
+			`,
+		},
+		{
+			name: "el return de la función interna no corta la externa",
+			source: `
+				fun externa() {
+					fun interna() { return 1; }
+					var r = interna();
+					return r + 1;
+				}
+				if (externa() != 2) print 1 / 0;
+			`,
+		},
+		{
+			name: "el valor del return se evalúa una sola vez",
+			source: `
+				var llamadas = 0;
+				fun contar() { llamadas = llamadas + 1; return llamadas; }
+				fun f() { return contar(); }
+				f();
+				if (llamadas != 1) print 1 / 0;
+			`,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := interpretSource(t, c.source); err != nil {
+				t.Fatalf("interpretSource falló: %v", err)
+			}
+		})
+	}
+}
+
+func TestInterpretReturnErrors(t *testing.T) {
+	cases := []struct {
+		name    string
+		source  string
+		wantMsg string
+	}{
+		{"return en el nivel global", "return 1;", "no se puede usar 'return' fuera de una función"},
+		{"return dentro de un bloque global", "{ return; }", "no se puede usar 'return' fuera de una función"},
+		{"return dentro de un while global", "while (true) { return; }", "no se puede usar 'return' fuera de una función"},
+		{"error al evaluar el valor del return", "fun f() { return 1 / 0; } f();", "división por cero"},
 	}
 
 	for _, c := range cases {
