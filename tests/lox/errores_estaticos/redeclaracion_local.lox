@@ -1,0 +1,6 @@
+// exit: 65
+// stderr: ya existe una variable con este nombre en este scope
+{
+  var a = 1;
+  var a = 2;
+}

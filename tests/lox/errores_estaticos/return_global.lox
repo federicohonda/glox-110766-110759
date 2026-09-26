@@ -1,0 +1,5 @@
+// exit: 65
+// stderr: no se puede usar 'return' fuera de una función
+// Es un error estático: ni siquiera el print de antes llega a ejecutarse.
+print "antes";
+return 1;

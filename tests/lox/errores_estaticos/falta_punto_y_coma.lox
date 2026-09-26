@@ -1,0 +1,4 @@
+// exit: 65
+// stderr: se esperaba ';'
+print "esto no se imprime";
+print 1

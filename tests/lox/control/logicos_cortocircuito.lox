@@ -1,0 +1,17 @@
+// and/or devuelven el valor del operando que decidió, no un booleano.
+print nil or "hola";   // expect: hola
+print "a" or "b";      // expect: a
+print nil and "b";     // expect: nil
+print 1 and 2;         // expect: 2
+print false or false;  // expect: false
+
+// El operando derecho no se evalúa si el izquierdo ya decide.
+fun efecto(valor) {
+  print "evaluado";
+  return valor;
+}
+print true or efecto(1);   // expect: true
+print false and efecto(1); // expect: false
+print false or efecto(3);
+// expect: evaluado
+// expect: 3

@@ -1,0 +1,23 @@
+fun contador() {
+  var n = 0;
+  fun siguiente() {
+    n = n + 1;
+    return n;
+  }
+  return siguiente;
+}
+var a = contador();
+var b = contador();
+print a(); // expect: 1
+print a(); // expect: 2
+print b(); // expect: 1
+print a(); // expect: 3
+
+// La closure sobrevive al bloque que la creó.
+var guardada;
+{
+  var local = "capturada";
+  fun leer() { return local; }
+  guardada = leer;
+}
+print guardada(); // expect: capturada

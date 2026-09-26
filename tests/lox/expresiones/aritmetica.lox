@@ -1,0 +1,12 @@
+// Precedencia, asociatividad y operaciones con números de punto flotante.
+print 1 + 2 * 3;        // expect: 7
+print (1 + 2) * 3;      // expect: 9
+print 10 - 4 - 3;       // expect: 3
+print 64 / 4 / 2;       // expect: 8
+print 3 / 2;            // expect: 1.5
+print 10 % 3;           // expect: 1
+print 2 * 3 % 4;        // expect: 2
+print -2 * -3;          // expect: 6
+print --5;              // expect: 5
+print 0.1 + 0.2;        // expect: 0.30000000000000004
+print 1000000 * 1000000; // expect: 1e+12

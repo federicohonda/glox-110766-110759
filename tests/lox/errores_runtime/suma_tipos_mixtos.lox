@@ -1,0 +1,6 @@
+// exit: 70
+// stderr: [línea 5] Error en tiempo de ejecución en '+'
+// Todo lo anterior al error se ejecuta.
+print "antes"; // expect: antes
+print "a" + 1;
+print "después";

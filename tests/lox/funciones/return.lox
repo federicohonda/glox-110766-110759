@@ -1,0 +1,20 @@
+fun sinValor() { return; }
+print sinValor(); // expect: nil
+fun sinReturn() {}
+print sinReturn(); // expect: nil
+
+// return corta desde adentro de loops y bloques anidados.
+fun primeroMayorA(tope) {
+  for (var i = 0; ; i = i + 1) {
+    {
+      if (i * i > tope) return i;
+    }
+  }
+}
+print primeroMayorA(50); // expect: 8
+
+fun codigoMuerto() {
+  return "antes";
+  print "nunca se imprime";
+}
+print codigoMuerto(); // expect: antes

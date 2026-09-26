@@ -1,0 +1,8 @@
+// Solo nil y false son falsos: 0 y "" son verdaderos.
+print !nil;    // expect: true
+print !false;  // expect: true
+print !0;      // expect: false
+print !"";     // expect: false
+print !!"x";   // expect: true
+if (0) print "0 es verdadero"; // expect: 0 es verdadero
+if ("") print "vacío es verdadero"; // expect: vacío es verdadero

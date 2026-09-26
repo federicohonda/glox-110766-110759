@@ -1,0 +1,6 @@
+// exit: 65
+// stderr: [línea 5] Error de sintaxis
+// stderr: [línea 6] Error de sintaxis
+// El parser se sincroniza y reporta los dos errores.
+print 1 +;
+var = 2;

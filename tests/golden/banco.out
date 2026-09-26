@@ -1,0 +1,30 @@
+=== Operaciones del día ===
+  OK       Ana deposita 500
+  OK       Beto extrae 600 (usa descubierto)
+  RECHAZO  Beto extrae 200 (supera descubierto): fondos insuficientes
+  OK       Ana transfiere 300 a Beto
+  RECHAZO  Caja transfiere 50 a Ana: fondos insuficientes
+  RECHAZO  Ana deposita -10: el monto a depositar tiene que ser positivo
+  RECHAZO  Ana pide un préstamo: operación desconocida: préstamo
+
+=== Fin de mes: 12% anual ===
+  OK       interés para Ana
+  RECHAZO  interés para Beto: sin saldo positivo, no genera interés
+
+=== Saldos ===
+Ana:
+1212
+Beto:
+-100
+Caja chica:
+0
+
+=== Historial de Ana ===
+  - apertura
+  - depósito
+  - extracción
+  - depósito
+Operaciones de Ana:
+3
+Operaciones de la caja chica:
+0

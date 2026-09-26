@@ -1,0 +1,3 @@
+// exit: 70
+// stderr: división por cero
+print 1 / 0;

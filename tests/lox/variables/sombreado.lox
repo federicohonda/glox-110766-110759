@@ -1,0 +1,11 @@
+var x = "global";
+{
+  var x = "bloque";
+  print x; // expect: bloque
+  {
+    var x = "interno";
+    print x; // expect: interno
+  }
+  print x; // expect: bloque
+}
+print x; // expect: global

@@ -1,0 +1,4 @@
+// exit: 70
+// stderr: se esperaban 2 argumentos pero se recibieron 1
+fun f(a, b) {}
+f(1);

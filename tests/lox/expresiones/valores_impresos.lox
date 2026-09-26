@@ -1,0 +1,8 @@
+// Cómo se imprime cada tipo de valor.
+print nil;     // expect: nil
+print true;    // expect: true
+print 42;      // expect: 42
+print 2.5;     // expect: 2.5
+print "texto"; // expect: texto
+fun f() {}
+print f;       // expect: <fn f>

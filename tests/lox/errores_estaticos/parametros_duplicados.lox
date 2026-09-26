@@ -1,0 +1,3 @@
+// exit: 65
+// stderr: ya existe una variable con este nombre en este scope
+fun f(a, a) {}

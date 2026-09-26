@@ -1,0 +1,4 @@
+// En el global se puede redeclarar (cómodo en el REPL); en un scope local no.
+var a = 1;
+var a = 2;
+print a; // expect: 2

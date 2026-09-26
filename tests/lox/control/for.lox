@@ -1,0 +1,14 @@
+for (var i = 0; i < 3; i = i + 1) print i;
+// expect: 0
+// expect: 1
+// expect: 2
+
+// Todas las cláusulas son opcionales.
+var j = 0;
+for (; j < 2;) j = j + 1;
+print j; // expect: 2
+
+// La variable del for vive en su propio scope.
+var i = "afuera";
+for (var i = 0; i < 1; i = i + 1) {}
+print i; // expect: afuera
