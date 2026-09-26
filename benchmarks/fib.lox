@@ -1,0 +1,10 @@
+// Benchmark: Fibonacci recursivo
+// Evalúa el costo de invocaciones a función, creación de entornos y retorno de valores.
+// fib(25) realiza 242.785 llamadas recursivas y retorna 75025.
+
+fun fib(n) {
+    if (n < 2) return n;
+    return fib(n - 1) + fib(n - 2);
+}
+
+print fib(25);

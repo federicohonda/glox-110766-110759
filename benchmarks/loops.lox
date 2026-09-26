@@ -1,0 +1,10 @@
+// Benchmark: Bucles e iteración intensiva
+// Evalúa el costo de bucles for desazucarados, evaluación de condiciones,
+// operaciones aritméticas y asignación a variables locales y globales.
+// Realiza 100.000 iteraciones sumando el índice y retorna 4999950000.
+
+var sum = 0;
+for (var i = 0; i < 100000; i = i + 1) {
+    sum = sum + i;
+}
+print sum;
