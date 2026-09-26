@@ -1,0 +1,10 @@
+// Benchmark: bucle con más carga
+// Lo mismo que loops.lox pero con 2.000.000 de iteraciones: mide solo el
+// costo por vuelta (condición, suma, asignación), sin llamadas a funciones.
+// resultado: 1999999000000
+
+var sum = 0;
+for (var i = 0; i < 2000000; i = i + 1) {
+    sum = sum + i;
+}
+print sum;

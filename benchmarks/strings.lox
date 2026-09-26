@@ -1,0 +1,16 @@
+// Benchmark: concatenación y comparación de strings
+// 1.000.000 de concatenaciones: cada una crea un string nuevo. Cada cinco vueltas se
+// compara contra un literal y se vacía, para que el string no crezca sin
+// límite y el benchmark mida alocación de strings, no copias cada vez más largas.
+// resultado: 200000
+
+var s = "";
+var completos = 0;
+for (var i = 0; i < 1000000; i = i + 1) {
+    s = s + "lox";
+    if (s == "loxloxloxloxlox") {
+        completos = completos + 1;
+        s = "";
+    }
+}
+print completos;

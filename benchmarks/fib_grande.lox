@@ -1,0 +1,11 @@
+// Benchmark: Fibonacci recursivo con más carga
+// Lo mismo que fib.lox pero con fib(28): 832.039 llamadas, suficiente para
+// que el costo de arranque deje de pesar en el resultado.
+// resultado: 317811
+
+fun fib(n) {
+    if (n < 2) return n;
+    return fib(n - 1) + fib(n - 2);
+}
+
+print fib(28);

@@ -1,0 +1,6 @@
+# Binario compilado
+/glox
+
+# Repos y binarios de las otras implementaciones (benchmarks/setup_impls.sh)
+/benchmarks/.impls/
+/benchmarks/.build/

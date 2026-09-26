@@ -2,6 +2,7 @@
 // Evalúa el costo de instanciar funciones que capturan su entorno léxico (enclosing environment),
 // retención de variables en memoria y posterior invocación.
 // Instancia 10.000 closures distintos y los invoca, retornando 50005000.
+// resultado: 50005000
 
 fun makeAdder(x) {
     fun add(y) {
