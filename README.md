@@ -16,10 +16,9 @@ en Go, para el TP de **Lenguajes y Compiladores I (FIUBA)**, Opción I.
 2. [Arquitectura](#arquitectura)
 3. [Diferencias con la implementación de la cátedra](#diferencias-con-la-implementación-de-la-cátedra)
 4. [Pruebas](#pruebas)
-5. [Programas de uso real](#programas-de-uso-real)
-6. [Benchmarks](#benchmarks)
-7. [Cómo trabajamos](#cómo-trabajamos)
-8. [Implementaciones usadas en los benchmarks](#implementaciones-usadas-en-los-benchmarks)
+5. [Benchmarks](#benchmarks)
+6. [Cómo trabajamos](#cómo-trabajamos)
+7. [Implementaciones usadas en los benchmarks](#implementaciones-usadas-en-los-benchmarks)
 
 ---
 
@@ -37,8 +36,6 @@ go build -o glox ./cmd/glox
 
 ```bash
 ./glox examples/hello.lox        # recorrido por la sintaxis básica
-./glox examples/gastos.lox       # programa de uso real (ver más abajo)
-./glox examples/banco.lox
 ```
 
 Sin compilar el binario también se puede usar `go run ./cmd/glox examples/hello.lox`.
@@ -244,7 +241,7 @@ viven en el stack y hay que sacarlas de ahí cuando una closure las captura.
 |---|---|---|
 | Pruebas de la cátedra | `real-tests/` | 5 archivos, 57 aserciones: aritmética, strings, control de flujo, funciones, el bug de closures, una máquina de Minsky y FizzBuzz. **5/5 OK.** |
 | Unitarias | `internal/*/*_test.go` | Cada paquete por separado. Cobertura: parser 96,4%, scanner 94,8%, interpreter 93,9%, resolver 91,1%. |
-| End-to-end | `tests/` | El binario real sobre 38 scripts `.lox`, más el REPL, los modos de inspección, los códigos de salida, la salida de cada ejemplo y el resultado de cada benchmark. |
+| End-to-end | `tests/` | El binario real sobre 38 scripts `.lox`, más el REPL, los modos de inspección, los códigos de salida, la salida de `examples/hello.lox` y el resultado de cada benchmark. |
 
 Los scripts de `tests/lox/` declaran lo que esperan en comentarios, y
 `tests/e2e_test.go` compila glox y los verifica:
@@ -273,68 +270,8 @@ vale la pena mirar:
 
 ```bash
 go test ./tests -v                 # solo end-to-end, con el detalle de cada script
-go test ./tests -update            # regenerar tests/golden/ si un ejemplo cambia a propósito
+go test ./tests -update            # regenerar tests/golden/ si el ejemplo cambia a propósito
 ```
-
----
-
-## Programas de uso real
-
-### `examples/gastos.lox` — Resumen de gastos del mes
-
-Toma los gastos de un mes y produce un reporte: listado, total y promedio,
-subtotal y porcentaje por categoría, los tres gastos más grandes, los "gastos
-hormiga", alertas cuando una categoría supera su presupuesto y una proyección
-con inflación mensual.
-
-Lo interesante es cómo se hace en un lenguaje sin listas, sin registros y sin
-forma de convertir números a texto:
-
-- **Listas hechas con closures.** `cons(cabeza, cola)` devuelve una función
-  que recuerda sus dos argumentos. Sobre eso están escritos `mapear`,
-  `filtrar`, `plegar`, `tomar` y un `ordenar` por inserción que recibe el
-  criterio como función.
-- **Registros hechos con closures.** Un gasto es una función que responde por
-  sus campos: `g("monto")`.
-- **Formateo con aritmética.** `pesos(12345.5)` devuelve `"$12.345,50"`:
-  separa dígitos con `%` y `/`, agrupa de a tres y redondea los centavos.
-- **Estado privado.** Cada presupuesto es una closure con su propio acumulado.
-- **Composición.** La proyección aplica `repetir(ajusteMensual, n)`, que
-  compone la función consigo misma `n` veces, sin ningún bucle.
-
-```text
-$ ./glox examples/gastos.lox
-=== Gastos de septiembre ===
-  día 1  Alquiler (vivienda): $450.000,00
-  día 2  Nafta (transporte): $35.000,00
-  ...
-Total: $719.811,74 en 15 gastos
-Promedio por gasto: $47.987,45
-
-=== Por categoría ===
-  vivienda: $450.000,00 (63%)
-  comida: $120.421,45 (17%)
-  ...
-=== Control de presupuesto ===
-  ALERTA día 27: comida se pasó del presupuesto de $100.000,00 (lleva $120.421,45)
-  ALERTA día 28: salidas se pasó del presupuesto de $40.000,00 (lleva $48.300,00)
-
-=== Proyección con 3% de inflación mensual ===
-  En 1 mes(es): $741.406,09
-  En 2 mes(es): $763.648,27
-  En 3 mes(es): $786.557,72
-```
-
-### `examples/banco.lox` — Cuentas bancarias encapsuladas
-
-Cada cuenta es una closure que guarda su saldo, su descubierto y su historial
-como variables privadas; la única forma de tocarlos es mandarle un mensaje
-(`cuenta("extraer", 200)`). Muestra transferencias que se rechazan sin dejar
-efectos a medias, intereses como una closure que recuerda su tasa, e historiales
-independientes por cuenta. Es la idea de objeto que en el Bloque 2 van a
-formalizar las clases, armada solo con funciones.
-
-La salida completa de los dos programas está en `tests/golden/`.
 
 ---
 
@@ -511,8 +448,8 @@ justo lo que el Bloque 2 viene a sacar.
   `demo-and-docs`, cada una integrada por PR (#1 a #8 al día de hoy). Nos
   repartimos las fases de a bloques: Federico hizo el setup, el parser, las
   funciones y el resolver; Franco el scanner, el intérprete con estado y
-  control de flujo, y los benchmarks; el cierre (pruebas end-to-end, ejemplos,
-  comparación ampliada y este README) lo hicimos entre los dos.
+  control de flujo, y los benchmarks; el cierre (pruebas end-to-end, comparación
+  ampliada y este README) lo hicimos entre los dos.
 - **Commits chicos y descriptivos,** uno por parte del plan, en español.
 - **Cada parte cierra en verde:** `go build`, `go vet`, `gofmt -l .`,
   `go test ./...` y, desde que hubo funciones, las pruebas de la cátedra.
