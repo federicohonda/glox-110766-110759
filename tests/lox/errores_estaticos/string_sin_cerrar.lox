@@ -1,0 +1,4 @@
+// exit: 65
+// stderr: String no cerrado
+print "antes";
+print "sin cerrar;

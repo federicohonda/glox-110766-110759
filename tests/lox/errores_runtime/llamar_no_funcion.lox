@@ -1,0 +1,4 @@
+// exit: 70
+// stderr: solo se pueden llamar funciones
+var x = "no soy función";
+x();

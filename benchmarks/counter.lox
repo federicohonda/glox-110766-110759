@@ -1,0 +1,21 @@
+// Benchmark: closure con estado
+// Una sola closure que lee y escribe su variable capturada 1.000.000 de veces.
+// Complementa a closures.lox (que crea muchas closures): acá se mide el acceso
+// a una variable que vive en el entorno de otra función.
+// resultado: 1000000
+
+fun crearContador() {
+    var cuenta = 0;
+    fun incrementar() {
+        cuenta = cuenta + 1;
+        return cuenta;
+    }
+    return incrementar;
+}
+
+var contador = crearContador();
+var ultimo = 0;
+for (var i = 0; i < 1000000; i = i + 1) {
+    ultimo = contador();
+}
+print ultimo;

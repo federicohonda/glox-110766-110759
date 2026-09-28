@@ -1,0 +1,9 @@
+var i = 0;
+var suma = 0;
+while (i < 5) {
+  suma = suma + i;
+  i = i + 1;
+}
+print suma; // expect: 10
+while (false) print "nunca";
+print "fin"; // expect: fin

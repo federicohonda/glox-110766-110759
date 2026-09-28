@@ -1,0 +1,5 @@
+// exit: 70
+// stderr: división por cero
+// Primero se evalúan los argumentos y recién después se valida el callee:
+// el error es la división, no "solo se pueden llamar funciones".
+123(1 / 0);

@@ -1,0 +1,3 @@
+// exit: 70
+// stderr: el operando de '-' debe ser un número
+print -"a";

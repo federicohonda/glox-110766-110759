@@ -1,0 +1,20 @@
+fun doble(x) { return x * 2; }
+fun aplicarDosVeces(f, x) { return f(f(x)); }
+print aplicarDosVeces(doble, 3); // expect: 12
+
+fun componer(f, g) {
+  fun h(x) { return f(g(x)); }
+  return h;
+}
+fun inc(x) { return x + 1; }
+print componer(doble, inc)(4); // expect: 10
+
+// Llamadas encadenadas.
+fun sumador(a) {
+  fun conB(b) {
+    fun conC(c) { return a + b + c; }
+    return conC;
+  }
+  return conB;
+}
+print sumador(1)(2)(3); // expect: 6

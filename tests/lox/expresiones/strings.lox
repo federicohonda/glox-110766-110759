@@ -1,0 +1,10 @@
+// Concatenación y strings multilínea (plox no los soporta: procesa línea por línea).
+print "hola" + " " + "mundo"; // expect: hola mundo
+var s = "uno
+dos";
+print s;
+// expect: uno
+// expect: dos
+print "" + "";                // expect: 
+print "a" == "a";             // expect: true
+print "a" != "b";             // expect: true

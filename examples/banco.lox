@@ -1,0 +1,133 @@
+// Simulador bancario con cuentas encapsuladas en closures
+//
+// Cada cuenta es una closure que guarda su saldo y su historial como
+// variables privadas: la única forma de tocarlas es mandándole un "mensaje"
+// ("depositar", "extraer", ...). Es la idea de objeto que después van a
+// formalizar las clases, armada solo con funciones.
+//
+// Uso: ./glox examples/banco.lox
+
+// Historial de movimientos: lista enlazada hecha con closures.
+fun cons(cabeza, cola) {
+    fun celda(pedido) {
+        if (pedido == "cabeza") return cabeza;
+        return cola;
+    }
+    return celda;
+}
+
+fun recorrerAlReves(lista, accion) {
+    if (lista == nil) return;
+    recorrerAlReves(lista("cola"), accion);
+    accion(lista("cabeza"));
+}
+
+fun crearCuenta(titular, saldoInicial, descubierto) {
+    var saldo = saldoInicial;
+    var historial = cons("apertura", nil);
+    var operaciones = 0;
+
+    fun registrar(detalle) {
+        historial = cons(detalle, historial);
+        operaciones = operaciones + 1;
+    }
+
+    fun cuenta(mensaje, monto) {
+        if (mensaje == "titular") return titular;
+        if (mensaje == "saldo") return saldo;
+        if (mensaje == "operaciones") return operaciones;
+        if (mensaje == "historial") return historial;
+
+        if (mensaje == "depositar") {
+            if (monto <= 0) return "el monto a depositar tiene que ser positivo";
+            saldo = saldo + monto;
+            registrar("depósito");
+            return nil;
+        }
+
+        if (mensaje == "extraer") {
+            if (monto <= 0) return "el monto a extraer tiene que ser positivo";
+            // Se puede quedar en negativo hasta el descubierto acordado.
+            if (saldo - monto < -descubierto) return "fondos insuficientes";
+            saldo = saldo - monto;
+            registrar("extracción");
+            return nil;
+        }
+
+        return "operación desconocida: " + mensaje;
+    }
+
+    return cuenta;
+}
+
+// Lox chequea que la cantidad de argumentos sea exacta, así que las
+// consultas, que no llevan monto, pasan por acá.
+fun consultar(cuenta, dato) {
+    return cuenta(dato, nil);
+}
+
+// Una transferencia son dos operaciones que tienen que salir las dos o
+// ninguna: si la extracción falla, no se deposita nada.
+fun transferir(origen, destino, monto) {
+    var error = origen("extraer", monto);
+    if (error != nil) return error;
+    return destino("depositar", monto);
+}
+
+fun informar(descripcion, error) {
+    if (error == nil) {
+        print "  OK       " + descripcion;
+    } else {
+        print "  RECHAZO  " + descripcion + ": " + error;
+    }
+}
+
+fun mostrarSaldo(cuenta) {
+    print consultar(cuenta, "titular") + ":";
+    print consultar(cuenta, "saldo");
+}
+
+// El interés también es una closure: "recuerda" su tasa.
+fun interesMensual(tasaAnual) {
+    fun aplicar(cuenta) {
+        var saldo = consultar(cuenta, "saldo");
+        if (saldo <= 0) return "sin saldo positivo, no genera interés";
+        return cuenta("depositar", saldo * tasaAnual / 100 / 12);
+    }
+    return aplicar;
+}
+
+var ana = crearCuenta("Ana", 1000, 0);
+var beto = crearCuenta("Beto", 200, 500);
+var caja = crearCuenta("Caja chica", 0, 0);
+
+print "=== Operaciones del día ===";
+informar("Ana deposita 500", ana("depositar", 500));
+informar("Beto extrae 600 (usa descubierto)", beto("extraer", 600));
+informar("Beto extrae 200 (supera descubierto)", beto("extraer", 200));
+informar("Ana transfiere 300 a Beto", transferir(ana, beto, 300));
+informar("Caja transfiere 50 a Ana", transferir(caja, ana, 50));
+informar("Ana deposita -10", ana("depositar", -10));
+informar("Ana pide un préstamo", ana("préstamo", 1000));
+
+print "";
+print "=== Fin de mes: 12% anual ===";
+var interes = interesMensual(12);
+informar("interés para Ana", interes(ana));
+informar("interés para Beto", interes(beto));
+
+print "";
+print "=== Saldos ===";
+mostrarSaldo(ana);
+mostrarSaldo(beto);
+mostrarSaldo(caja);
+
+// Cada cuenta tiene su propio historial: las closures no comparten estado.
+print "";
+print "=== Historial de Ana ===";
+fun imprimirLinea(detalle) { print "  - " + detalle; }
+recorrerAlReves(consultar(ana, "historial"), imprimirLinea);
+print "Operaciones de Ana:";
+print consultar(ana, "operaciones");
+print "Operaciones de la caja chica:";
+print consultar(caja, "operaciones");

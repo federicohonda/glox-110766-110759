@@ -1,0 +1,16 @@
+// Benchmark: llamadas a función no recursivas
+// 1.000.000 de vueltas con dos llamadas cada una (2.000.000 en total) a una
+// función hoja de dos parámetros. A diferencia de fib, la pila nunca crece: se
+// mide el costo fijo de cada llamada (crear el entorno, ligar parámetros,
+// volver con return).
+// resultado: 500000500000
+
+fun sumar(a, b) {
+    return a + b;
+}
+
+var total = 0;
+for (var i = 1; i <= 1000000; i = i + 1) {
+    total = sumar(total, i) + sumar(i, 0) - i;
+}
+print total;

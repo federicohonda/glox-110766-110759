@@ -1,0 +1,6 @@
+// exit: 65
+// stderr: no se puede leer una variable local en su propio inicializador
+var a = "afuera";
+{
+  var a = a;
+}

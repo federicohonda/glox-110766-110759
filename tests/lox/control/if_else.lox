@@ -1,0 +1,6 @@
+if (true) print "then"; else print "else"; // expect: then
+if (false) print "then"; else print "else"; // expect: else
+// El else se asocia al if más cercano (dangling else).
+if (true) if (false) print "no"; else print "else interno"; // expect: else interno
+if (false) if (true) print "no"; else print "tampoco";
+print "fin"; // expect: fin

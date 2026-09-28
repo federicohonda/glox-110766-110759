@@ -1,0 +1,6 @@
+// exit: 65
+// stderr: Carácter no reconocido: '@'
+// stderr: Carácter no reconocido: '#'
+// El scanner acumula todos los errores léxicos en vez de cortar en el primero.
+print @;
+print #;

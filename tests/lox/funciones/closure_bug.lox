@@ -1,0 +1,9 @@
+// El caso clásico que arregla el resolver: la función tiene que seguir viendo
+// la variable que existía cuando se declaró, no la redeclaración posterior.
+var a = "global";
+{
+  fun mostrar() { print a; }
+  mostrar(); // expect: global
+  var a = "bloque";
+  mostrar(); // expect: global
+}

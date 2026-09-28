@@ -1,0 +1,11 @@
+var a = 1;
+var b = a = 5;
+print a; // expect: 5
+print b; // expect: 5
+var c;
+c = a + b;
+print c; // expect: 10
+{
+  a = "cambiada desde un bloque";
+}
+print a; // expect: cambiada desde un bloque

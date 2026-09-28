@@ -1,0 +1,11 @@
+// Los argumentos se evalúan de izquierda a derecha.
+fun marcar(x) {
+  print x;
+  return x;
+}
+fun tres(a, b, c) { return a + b + c; }
+print tres(marcar(1), marcar(2), marcar(3));
+// expect: 1
+// expect: 2
+// expect: 3
+// expect: 6

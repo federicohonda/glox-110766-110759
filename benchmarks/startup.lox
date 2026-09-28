@@ -1,0 +1,7 @@
+// Benchmark: costo de arranque
+// El programa mínimo posible. Lo que tarda es lo que cuesta levantar el
+// intérprete (runtime, JVM, carga de módulos), y se usa para separar ese costo
+// fijo del trabajo real en el resto de los scripts.
+// resultado: ok
+
+print "ok";

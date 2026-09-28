@@ -1,0 +1,4 @@
+// exit: 65
+// stderr: destino de asignación inválido
+var a = 1;
+(a) = 2;
