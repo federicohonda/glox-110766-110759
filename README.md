@@ -18,7 +18,6 @@ en Go, para el TP de **Lenguajes y Compiladores I (FIUBA)**, Opción I.
 4. [Pruebas](#pruebas)
 5. [Benchmarks](#benchmarks)
 6. [Cómo trabajamos](#cómo-trabajamos)
-7. [Implementaciones usadas en los benchmarks](#implementaciones-usadas-en-los-benchmarks)
 
 ---
 
@@ -287,9 +286,24 @@ mismos 9 scripts en la misma máquina. Cómo se mide y cómo reproducirlo está 
 - **Métrica:** mediana del tiempo total del proceso (arranque + scan + parse +
   resolve + ejecución) sobre 3 a 5 corridas, validando que cada corrida
   imprima el resultado correcto.
-- **Estrategia de cada implementación:** todas son *tree-walk* como glox,
-  salvo rlox y loxx, que compilan a bytecode y ejecutan en una VM. En los
-  gráficos aparecen en naranja y con rombo; glox en azul.
+- **Colores:** en los gráficos, glox aparece en azul y las dos
+  implementaciones a bytecode (rlox y loxx) en naranja y con rombo.
+
+### Implementaciones comparadas
+
+Todas son *tree-walk* como glox, salvo rlox y loxx, que compilan a bytecode y
+ejecutan en una VM.
+
+| Implementación | Lenguaje | Estrategia | Repositorio |
+|---|---|---|---|
+| rlox | Rust | AST → bytecode + VM | https://github.com/Darksecond/lox |
+| loxx | C++ | bytecode + VM | https://github.com/mspraggs/loxx |
+| jlox | Java | tree-walk | https://github.com/ryanq/jlox |
+| slox | Swift | tree-walk | https://github.com/alexito4/slox |
+| dlox | Dart | tree-walk | https://github.com/sma/lox |
+| plox-php | PHP | tree-walk | https://github.com/minirop/plox |
+| cloxure | Clojure | tree-walk | https://github.com/ceronman/cloxure |
+| plox | Python | tree-walk (la de la cátedra) | https://github.com/FdelMazo/plox |
 
 ### Resultados
 
@@ -410,8 +424,9 @@ iba contra el estilo de Go, también habría sido medible en cada llamada.
 **5. Arranque: glox tarda 2,2 ms en ejecutar `print "ok";`**, contra 53 ms de
 plox, 22 ms de jlox y 199 ms de cloxure. Un binario de Go es un ejecutable
 nativo que trae su runtime (GC, scheduler) adentro y lo inicializa en
-microsegundos: no hay que cargar una máquina virtual ni módulos. Por eso los tres scripts originales de la primera comparativa
-(`fib`, `loops`, `closures`, de 7 a 36 ms en glox) miden en buena parte
+microsegundos: no hay que cargar una máquina virtual ni módulos. Por eso los
+tres scripts originales de la primera comparativa (`fib`, `loops`,
+`closures`, de 7 a 36 ms en glox) miden en buena parte
 arranque, y por eso sumamos las versiones con más carga: con `loops.lox`
 (100.000 vueltas), dlox parece tan rápido como glox (24 ms contra 17 ms), y
 recién con 2 millones de vueltas se ve la diferencia real de ejecución.
@@ -445,7 +460,7 @@ justo lo que el Bloque 2 viene a sacar.
   tiempo, iba a tests y documentación de lo ya visto.
 - **Una rama por tema y Pull Requests a `main`.** `scanning`, `interpreter`,
   `state`, `control-flow`, `functions`, `resolver`, `benchmarks` y
-  `demo-and-docs`, cada una integrada por PR (#1 a #8 al día de hoy). Nos
+  `demo-and-docs`, cada una integrada a `main` por PR (#1 a #9). Nos
   repartimos las fases de a bloques: Federico hizo el setup, el parser, las
   funciones y el resolver; Franco el scanner, el intérprete con estado y
   control de flujo, y los benchmarks; el cierre (pruebas end-to-end, comparación
@@ -464,18 +479,3 @@ justo lo que el Bloque 2 viene a sacar.
   veredicto del script. Y un test del resolver que suponíamos válido
   (`{ var a = 1; { var a = a; } }`) resultó ser un error de verdad en Lox: se
   corrigió el test, no el resolver.
-
----
-
-## Implementaciones usadas en los benchmarks
-
-| Implementación | Lenguaje | Estrategia | Repositorio |
-|---|---|---|---|
-| Rlox | Rust | AST → bytecode + VM | https://github.com/Darksecond/lox |
-| Slox | Swift | tree-walk | https://github.com/alexito4/slox |
-| Jlox | Java | tree-walk | https://github.com/ryanq/jlox |
-| Cloxure | Clojure | tree-walk | https://github.com/ceronman/cloxure |
-| Loxx | C++ | bytecode + VM | https://github.com/mspraggs/loxx |
-| Plox-master | PHP | tree-walk | https://github.com/minirop/plox |
-| Dlox | Dart | tree-walk | https://github.com/sma/lox |
-| Plox | Python | tree-walk (implementación de la cátedra) | https://github.com/FdelMazo/plox |
