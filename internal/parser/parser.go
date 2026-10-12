@@ -87,8 +87,9 @@ func (p *Parser) Parse() ([]ast.Stmt, []error) {
 	return statements, nil
 }
 
-// ParseExpression parsea una única expresión aislada (útil para tests unitarios
-// o evaluación de expresiones sueltas).
+// ParseExpression parsea una única expresión aislada, que tiene que ocupar
+// toda la entrada: si después de la expresión queda algo que no sea el EOF, es
+// un error de sintaxis. La usan los tests unitarios y el modo --disassemble.
 func (p *Parser) ParseExpression() (expr ast.Expr, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -100,6 +101,9 @@ func (p *Parser) ParseExpression() (expr ast.Expr, err error) {
 		}
 	}()
 	expr = p.expression()
+	if !p.isAtEnd() {
+		panic(p.errorAt(p.peek(), "se esperaba el final de la expresión."))
+	}
 	if len(p.errors) > 0 {
 		return nil, p.errors[0]
 	}
@@ -211,7 +215,7 @@ func (p *Parser) forStatement() ast.Stmt {
 	if !p.check(token.SEMICOLON) {
 		condition = p.expression()
 	}
-	p.consume(token.SEMICOLON, "se esperaba ';' después de la condición del for.")
+	conditionEnd := p.consume(token.SEMICOLON, "se esperaba ';' después de la condición del for.")
 
 	var increment ast.Expr
 	if !p.check(token.RIGHT_PAREN) {
@@ -233,7 +237,7 @@ func (p *Parser) forStatement() ast.Stmt {
 
 	// Si no hay condición, equivale a un bucle infinito while (true)
 	if condition == nil {
-		condition = &ast.Literal{Value: true}
+		condition = &ast.Literal{Value: true, Line: conditionEnd.Line}
 	}
 	body = &ast.WhileStmt{Condition: condition, Body: body}
 
@@ -427,13 +431,13 @@ func (p *Parser) finishCall(callee ast.Expr) ast.Expr {
 func (p *Parser) primary() ast.Expr {
 	switch {
 	case p.match(token.FALSE):
-		return &ast.Literal{Value: false}
+		return &ast.Literal{Value: false, Line: p.previous().Line}
 	case p.match(token.TRUE):
-		return &ast.Literal{Value: true}
+		return &ast.Literal{Value: true, Line: p.previous().Line}
 	case p.match(token.NIL):
-		return &ast.Literal{Value: nil}
+		return &ast.Literal{Value: nil, Line: p.previous().Line}
 	case p.match(token.NUMBER, token.STRING):
-		return &ast.Literal{Value: p.previous().Literal}
+		return &ast.Literal{Value: p.previous().Literal, Line: p.previous().Line}
 	case p.match(token.IDENTIFIER):
 		return &ast.Variable{Name: p.previous()}
 	case p.match(token.LEFT_PAREN):
