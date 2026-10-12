@@ -264,6 +264,35 @@ func TestModoParsing(t *testing.T) {
 	}
 }
 
+// --disassemble compila una expresión suelta, muestra el bytecode y la
+// ejecuta en la VM.
+func TestModoDisassemble(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "expr.lox")
+	if err := os.WriteFile(path, []byte("2 + 3 * 4\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := runGlox(t, "--disassemble", path)
+	if got.exit != 0 || got.stderr != "" {
+		t.Fatalf("código %d\nstderr:\n%s", got.exit, got.stderr)
+	}
+	want := strings.Join([]string{
+		"== COMPILETIME ==",
+		"0000    1 OP_CONSTANT         0 '2'",
+		"0002    | OP_CONSTANT         1 '3'",
+		"0004    | OP_CONSTANT         2 '4'",
+		"0006    | OP_MULTIPLY",
+		"0007    | OP_ADD",
+		"0008    | OP_RETURN",
+		"== RUNTIME ==",
+		"14",
+		"",
+	}, "\n")
+	if got.stdout != want {
+		t.Errorf("salida de --disassemble distinta\n--- obtenido\n%s--- esperado\n%s", got.stdout, want)
+	}
+}
+
 func TestUsoIncorrecto(t *testing.T) {
 	if got := runGlox(t, "a.lox", "b.lox"); got.exit != 64 {
 		t.Errorf("con dos archivos el código fue %d, se esperaba 64", got.exit)

@@ -363,3 +363,34 @@ func TestParserForWithoutConditionLiteralLine(t *testing.T) {
 		t.Errorf("condición = %v en línea %d, esperado true en línea 2", condition.Value, condition.Line)
 	}
 }
+
+// ParseExpression exige que la expresión ocupe toda la entrada: lo que sobre
+// después es un error, no algo que se ignora en silencio.
+func TestParseExpressionRejectsTrailingTokens(t *testing.T) {
+	cases := []struct {
+		name     string
+		source   string
+		expected string
+	}{
+		{"punto y coma al final", "1 + 2;", "[línea 1] Error de sintaxis en ';': se esperaba el final de la expresión."},
+		{"dos expresiones seguidas", "1 2", "[línea 1] Error de sintaxis en '2': se esperaba el final de la expresión."},
+		{"paréntesis de más", "(1 + 2))", "[línea 1] Error de sintaxis en ')': se esperaba el final de la expresión."},
+		{"sobrante en otra línea", "1 + 2\nprint", "[línea 2] Error de sintaxis en 'print': se esperaba el final de la expresión."},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tokens, scanErrs := scanner.New(tc.source).Scan()
+			if len(scanErrs) > 0 {
+				t.Fatalf("error de escaneo inesperado en %q: %v", tc.source, scanErrs)
+			}
+			expr, err := parser.New(tokens).ParseExpression()
+			if err == nil {
+				t.Fatalf("esperaba un error de sintaxis parseando %q, obtuve %v", tc.source, expr)
+			}
+			if err.Error() != tc.expected {
+				t.Errorf("mensaje = %q, esperado %q", err.Error(), tc.expected)
+			}
+		})
+	}
+}

@@ -87,8 +87,9 @@ func (p *Parser) Parse() ([]ast.Stmt, []error) {
 	return statements, nil
 }
 
-// ParseExpression parsea una única expresión aislada (útil para tests unitarios
-// o evaluación de expresiones sueltas).
+// ParseExpression parsea una única expresión aislada, que tiene que ocupar
+// toda la entrada: si después de la expresión queda algo que no sea el EOF, es
+// un error de sintaxis. La usan los tests unitarios y el modo --disassemble.
 func (p *Parser) ParseExpression() (expr ast.Expr, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -100,6 +101,9 @@ func (p *Parser) ParseExpression() (expr ast.Expr, err error) {
 		}
 	}()
 	expr = p.expression()
+	if !p.isAtEnd() {
+		panic(p.errorAt(p.peek(), "se esperaba el final de la expresión."))
+	}
 	if len(p.errors) > 0 {
 		return nil, p.errors[0]
 	}

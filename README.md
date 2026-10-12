@@ -61,8 +61,9 @@ Se sale con `Ctrl+D` (fin de la entrada).
 ### Modos de inspección
 
 ```bash
-./glox --scanning examples/hello.lox   # lista de tokens: TIPO 'lexema' literal
-./glox --parsing  examples/hello.lox   # AST en notación prefija, una sentencia por línea
+./glox --scanning    examples/hello.lox   # lista de tokens: TIPO 'lexema' literal
+./glox --parsing     examples/hello.lox   # AST en notación prefija, una sentencia por línea
+./glox --disassemble expr.lox             # bytecode de una expresión y su resultado en la VM
 ```
 
 ```text
@@ -71,7 +72,42 @@ $ ./glox --parsing /tmp/t.lox
 (print (+ 1 (* 2 3)))
 ```
 
-Los dos modos también funcionan en el REPL (`./glox --parsing`).
+`--disassemble` es la primera parte visible del Bloque 2: en vez de recorrer
+el AST, lo compila a bytecode y lo ejecuta en una máquina virtual de pila.
+Muestra primero el listado del bytecode y después el resultado. Por ahora el
+compilador solo conoce expresiones aritméticas, así que la entrada es **una
+expresión suelta, sin `;`**, y no un programa:
+
+```text
+$ ./glox --disassemble
+> 2 + 3 * 4
+== COMPILETIME ==
+0000    1 OP_CONSTANT         0 '2'
+0002    | OP_CONSTANT         1 '3'
+0004    | OP_CONSTANT         2 '4'
+0006    | OP_MULTIPLY
+0007    | OP_ADD
+0008    | OP_RETURN
+== RUNTIME ==
+14
+> 1 / 0
+== COMPILETIME ==
+0000    1 OP_CONSTANT         0 '1'
+0002    | OP_CONSTANT         1 '0'
+0004    | OP_DIVIDE
+0005    | OP_RETURN
+== RUNTIME ==
+[línea 1] Error en tiempo de ejecución en '/': división por cero.
+> 1 < 2
+[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '<'.
+```
+
+Las columnas del listado son: posición del opcode, línea del fuente (`|` si no
+cambió), instrucción y, si lleva operando, el índice de la constante y su
+valor. Es el mismo árbol que muestra `--parsing` (`(+ 2 (* 3 4))`), aplanado en
+notación postfija: los operandos antes que el operador.
+
+Los tres modos también funcionan en el REPL (`./glox --parsing`).
 
 ### Códigos de salida
 
@@ -79,7 +115,7 @@ Los dos modos también funcionan en el REPL (`./glox --parsing`).
 |---|---|
 | `0` | El programa terminó bien |
 | `64` | Uso incorrecto del CLI (más de un archivo) |
-| `65` | Error estático: léxico, de sintaxis o semántico. **No se ejecuta ninguna línea** |
+| `65` | Error estático: léxico, de sintaxis, semántico o de compilación a bytecode. **No se ejecuta ninguna línea** |
 | `70` | Error en tiempo de ejecución. Lo anterior al error sí se ejecutó |
 
 Los errores van a `stderr` con la línea donde ocurrieron:
@@ -122,16 +158,30 @@ Código fuente (.lox o REPL)
  [4. Interpreter] ───────► errores de runtime (70)
 ```
 
+Con `--disassemble` se toma el otro camino, el del Bloque 2 (en construcción).
+Comparte scanner y parser con el anterior: lo que cambia es qué se hace con el
+árbol.
+
+```
+ [2. Parser]
+       │ ast.Expr           (por ahora, una expresión)
+       ▼
+ [5. Compiler] ──────────► errores de compilación (65)
+       │ *bytecode.Chunk    (instrucciones + constantes + líneas)
+       ▼
+ [6. VM]       ──────────► errores de runtime (70)
+```
+
 | Paquete | Qué hace |
 |---|---|
-| `cmd/glox` | CLI: REPL, archivo, `--scanning`, `--parsing` y códigos de salida. Arma el pipeline y corta en la primera etapa con errores. |
+| `cmd/glox` | CLI: REPL, archivo, `--scanning`, `--parsing`, `--disassemble` y códigos de salida. Arma el pipeline y corta en la primera etapa con errores. |
 | `internal/token` | `TokenType` (enum con `iota`) y `Token{Type, Lexeme, Literal, Line}`. |
 | `internal/scanner` | Análisis léxico *maximal munch*. Acumula todos los errores léxicos del archivo en vez de cortar en el primero. |
 | `internal/ast` | Nodos del AST como structs de datos puros, separados por archivo (`ast.go`, `stmt.go`, `expr_variable.go`, `expr_logical.go`, `expr_call.go`). Cada nodo se imprime en notación prefija (`String()`). |
 | `internal/parser` | Parser recursivo descendente: una función por regla de la gramática. Desazucara `for` a `while`. Se recupera de los errores sincronizando hasta la próxima sentencia. |
 | `internal/resolver` | Análisis semántico estático: calcula la distancia de scope de cada variable local y detecta `return` fuera de funciones, lecturas de una variable en su propio inicializador y redeclaraciones locales. |
 | `internal/interpreter` | Evaluación con `type switch`, `Environment` encadenado, funciones con closures. |
-| `internal/bytecode` | Bloque 2, en construcción. Por ahora: `Chunk` (bytecode + tabla de constantes + línea de cada byte), el juego de instrucciones aritméticas (`OpCode`), un disassembler y el compilador de expresiones aritméticas, que parte del mismo AST que usa el intérprete. Falta la VM. |
+| `internal/bytecode` | Bloque 2, en construcción. `Chunk` (bytecode + tabla de constantes + línea de cada byte), el juego de instrucciones (`OpCode`), un disassembler, el compilador (recorre en postorden el mismo AST que usa el intérprete) y la VM de pila. Por ahora cubre expresiones aritméticas. |
 
 ### Gramática implementada
 

@@ -6,31 +6,34 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/federicohonda/glox-110766-110759/internal/bytecode"
 	"github.com/federicohonda/glox-110766-110759/internal/interpreter"
 	"github.com/federicohonda/glox-110766-110759/internal/parser"
 	"github.com/federicohonda/glox-110766-110759/internal/resolver"
 	"github.com/federicohonda/glox-110766-110759/internal/scanner"
+	"github.com/federicohonda/glox-110766-110759/internal/token"
 )
 
 func main() {
 	scanning := flag.Bool("scanning", false, "Escanear e imprimir la lista de tokens")
 	parsing := flag.Bool("parsing", false, "Parsear e imprimir el AST de la expresión")
+	disassemble := flag.Bool("disassemble", false, "Compilar una expresión a bytecode, imprimirlo y ejecutarlo en la VM")
 	flag.Parse()
 
 	args := flag.Args()
 
 	switch len(args) {
 	case 0:
-		runPrompt(*scanning, *parsing)
+		runPrompt(*scanning, *parsing, *disassemble)
 	case 1:
-		runFile(args[0], *scanning, *parsing)
+		runFile(args[0], *scanning, *parsing, *disassemble)
 	default:
-		fmt.Fprintln(os.Stderr, "Uso: glox [--scanning] [--parsing] [script]")
+		fmt.Fprintln(os.Stderr, "Uso: glox [--scanning] [--parsing] [--disassemble] [script]")
 		os.Exit(64)
 	}
 }
 
-func runFile(path string, scanning, parsing bool) {
+func runFile(path string, scanning, parsing, disassemble bool) {
 	bytes, err := os.ReadFile(path)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -38,7 +41,7 @@ func runFile(path string, scanning, parsing bool) {
 	}
 
 	interp := interpreter.New()
-	hadError, hadRuntimeError := run(string(bytes), scanning, parsing, interp)
+	hadError, hadRuntimeError := run(string(bytes), scanning, parsing, disassemble, interp)
 	if hadError {
 		os.Exit(65)
 	}
@@ -47,7 +50,7 @@ func runFile(path string, scanning, parsing bool) {
 	}
 }
 
-func runPrompt(scanning, parsing bool) {
+func runPrompt(scanning, parsing, disassemble bool) {
 	sc := bufio.NewScanner(os.Stdin)
 	interp := interpreter.New()
 	for {
@@ -56,11 +59,11 @@ func runPrompt(scanning, parsing bool) {
 			break
 		}
 		line := sc.Text()
-		run(line, scanning, parsing, interp)
+		run(line, scanning, parsing, disassemble, interp)
 	}
 }
 
-func run(source string, scanning, parsing bool, interp *interpreter.Interpreter) (hadError bool, hadRuntimeError bool) {
+func run(source string, scanning, parsing, disassemble bool, interp *interpreter.Interpreter) (hadError bool, hadRuntimeError bool) {
 	sc := scanner.New(source)
 	tokens, errs := sc.Scan()
 
@@ -82,6 +85,10 @@ func run(source string, scanning, parsing bool, interp *interpreter.Interpreter)
 
 	if scanning {
 		return false, false
+	}
+
+	if disassemble {
+		return runBytecode(tokens)
 	}
 
 	stmts, parseErrs := parser.New(tokens).Parse()
@@ -112,6 +119,40 @@ func run(source string, scanning, parsing bool, interp *interpreter.Interpreter)
 		fmt.Fprintln(os.Stderr, err)
 		return false, true
 	}
+
+	return false, false
+}
+
+// runBytecode es el pipeline del modo --disassemble: compila a bytecode,
+// muestra el listado del chunk y lo ejecuta en la VM. Por ahora el compilador
+// solo conoce expresiones, así que la entrada tiene que ser una única
+// expresión (sin ';') y no un programa.
+func runBytecode(tokens []token.Token) (hadError bool, hadRuntimeError bool) {
+	// Solo el EOF: una entrada vacía no hace nada, igual que un programa vacío.
+	if len(tokens) == 1 {
+		return false, false
+	}
+
+	expr, err := parser.New(tokens).ParseExpression()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return true, false
+	}
+
+	chunk, err := bytecode.Compile(expr)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return true, false
+	}
+	fmt.Print(chunk.Disassemble("COMPILETIME"))
+
+	fmt.Println("== RUNTIME ==")
+	result, err := bytecode.NewVM().Run(chunk)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return false, true
+	}
+	fmt.Println(interpreter.Stringify(result))
 
 	return false, false
 }
