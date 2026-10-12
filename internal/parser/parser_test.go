@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/federicohonda/glox-110766-110759/internal/ast"
 	"github.com/federicohonda/glox-110766-110759/internal/parser"
 	"github.com/federicohonda/glox-110766-110759/internal/scanner"
 )
@@ -300,5 +301,65 @@ func TestParserErrorSynchronization(t *testing.T) {
 	}
 	if len(stmts) != 0 {
 		// Parse() devuelve nil cuando len(errors) > 0
+	}
+}
+
+// Cada literal recuerda la línea donde está escrito, que es la que usa el
+// compilador a bytecode para anotar la instrucción que lo apila.
+func TestParserLiteralLine(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+		line   int
+	}{
+		{"número", "1", 1},
+		{"string", "\n\"hola\"", 2},
+		{"true", "\n\ntrue", 3},
+		{"false", "\n\n\nfalse", 4},
+		{"nil", "\n\n\n\nnil", 5},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tokens, scanErrs := scanner.New(tc.source).Scan()
+			if len(scanErrs) > 0 {
+				t.Fatalf("error de escaneo inesperado en %q: %v", tc.source, scanErrs)
+			}
+			expr, err := parser.New(tokens).ParseExpression()
+			if err != nil {
+				t.Fatalf("error de parseo inesperado en %q: %v", tc.source, err)
+			}
+			literal, ok := expr.(*ast.Literal)
+			if !ok {
+				t.Fatalf("se esperaba *ast.Literal, se obtuvo %T", expr)
+			}
+			if literal.Line != tc.line {
+				t.Errorf("Line = %d, esperado %d", literal.Line, tc.line)
+			}
+		})
+	}
+}
+
+// El `true` que el parser inventa para un `for` sin condición toma la línea
+// del ';' que cierra esa cláusula vacía.
+func TestParserForWithoutConditionLiteralLine(t *testing.T) {
+	tokens, scanErrs := scanner.New("for (;\n;) print 1;").Scan()
+	if len(scanErrs) > 0 {
+		t.Fatalf("error de escaneo inesperado: %v", scanErrs)
+	}
+	stmts, parseErrs := parser.New(tokens).Parse()
+	if len(parseErrs) > 0 {
+		t.Fatalf("errores de parseo inesperados: %v", parseErrs)
+	}
+	loop, ok := stmts[0].(*ast.WhileStmt)
+	if !ok {
+		t.Fatalf("se esperaba *ast.WhileStmt, se obtuvo %T", stmts[0])
+	}
+	condition, ok := loop.Condition.(*ast.Literal)
+	if !ok {
+		t.Fatalf("se esperaba una condición *ast.Literal, se obtuvo %T", loop.Condition)
+	}
+	if condition.Value != true || condition.Line != 2 {
+		t.Errorf("condición = %v en línea %d, esperado true en línea 2", condition.Value, condition.Line)
 	}
 }

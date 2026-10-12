@@ -28,9 +28,12 @@ type Grouping struct {
 }
 
 // Literal representa un valor literal ya interpretado (no el lexeme crudo):
-// float64, string, bool o nil.
+// float64, string, bool o nil. Line es la línea del fuente donde está
+// escrito: el intérprete no la usa (un literal no puede fallar), pero el
+// compilador a bytecode la necesita para anotar la instrucción que emite.
 type Literal struct {
 	Value any
+	Line  int
 }
 
 // Unary representa `operator right`, ej. `-1` o `!true`.

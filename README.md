@@ -131,7 +131,7 @@ Código fuente (.lox o REPL)
 | `internal/parser` | Parser recursivo descendente: una función por regla de la gramática. Desazucara `for` a `while`. Se recupera de los errores sincronizando hasta la próxima sentencia. |
 | `internal/resolver` | Análisis semántico estático: calcula la distancia de scope de cada variable local y detecta `return` fuera de funciones, lecturas de una variable en su propio inicializador y redeclaraciones locales. |
 | `internal/interpreter` | Evaluación con `type switch`, `Environment` encadenado, funciones con closures. |
-| `internal/bytecode` | Bloque 2, en construcción. Por ahora: `Chunk` (bytecode + tabla de constantes + línea de cada byte), el juego de instrucciones aritméticas (`OpCode`) y un disassembler. Faltan el compilador y la VM. |
+| `internal/bytecode` | Bloque 2, en construcción. Por ahora: `Chunk` (bytecode + tabla de constantes + línea de cada byte), el juego de instrucciones aritméticas (`OpCode`), un disassembler y el compilador de expresiones aritméticas, que parte del mismo AST que usa el intérprete. Falta la VM. |
 
 ### Gramática implementada
 
