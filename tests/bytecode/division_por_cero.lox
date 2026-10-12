@@ -1,0 +1,5 @@
+// exit: 70
+// stderr: [línea 5] Error en tiempo de ejecución en '/': división por cero.
+// El bytecode se muestra igual: el error es de la VM, no del compilador.
+// ops: OP_CONSTANT OP_CONSTANT OP_CONSTANT OP_SUBTRACT OP_DIVIDE OP_RETURN
+10 / (5 - 5)

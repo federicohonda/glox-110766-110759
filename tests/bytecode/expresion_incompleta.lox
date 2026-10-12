@@ -1,0 +1,3 @@
+// exit: 65
+// stderr: Error de sintaxis al final: se esperaba una expresión.
+1 +

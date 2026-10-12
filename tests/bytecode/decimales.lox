@@ -1,0 +1,2 @@
+// Los números son float64, con todo lo que eso implica.
+0.1 + 0.2 // expect: 0.30000000000000004

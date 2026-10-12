@@ -1,0 +1,3 @@
+// exit: 65
+// stderr: [línea 3] Error de compilación: el compilador a bytecode todavía no soporta las variables.
+x + 1

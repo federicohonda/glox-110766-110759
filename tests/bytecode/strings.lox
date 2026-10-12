@@ -1,0 +1,3 @@
+// + también concatena strings.
+// ops: OP_CONSTANT OP_CONSTANT OP_ADD OP_CONSTANT OP_ADD OP_RETURN
+"glox" + " " + "vm" // expect: glox vm

@@ -1,0 +1,3 @@
+// exit: 70
+// stderr: [línea 3] Error en tiempo de ejecución en '%': módulo por cero.
+10 % 0

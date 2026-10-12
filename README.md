@@ -289,8 +289,9 @@ viven en el stack y hay que sacarlas de ahí cuando una closure las captura.
 | Nivel | Dónde | Qué cubre |
 |---|---|---|
 | Pruebas de la cátedra | `real-tests/` | 5 archivos, 57 aserciones: aritmética, strings, control de flujo, funciones, el bug de closures, una máquina de Minsky y FizzBuzz. **5/5 OK.** |
-| Unitarias | `internal/*/*_test.go` | Cada paquete por separado. Cobertura: parser 96,4%, scanner 94,8%, interpreter 93,9%, resolver 91,1%. |
-| End-to-end | `tests/` | El binario real sobre 38 scripts `.lox`, más el REPL, los modos de inspección, los códigos de salida, la salida de `examples/hello.lox` y el resultado de cada benchmark. |
+| Unitarias | `internal/*/*_test.go` | Cada paquete por separado. Cobertura: bytecode 100%, parser 98,2%, scanner 94,8%, interpreter 93,9%, resolver 91,1%. |
+| Tree-walk vs. bytecode | `internal/bytecode/treewalk_test.go` | La misma expresión evaluada por el intérprete y por la VM tiene que dar el mismo valor o el mismo error, con el mismo mensaje y la misma línea. Unos 60 casos borde escritos a mano y 3000 expresiones generadas al azar con semilla fija. |
+| End-to-end | `tests/` | El binario real sobre 38 scripts `.lox` y 22 expresiones para `--disassemble`, más el REPL, los modos de inspección, los códigos de salida, la salida de `examples/hello.lox` y el resultado de cada benchmark. |
 
 Los scripts de `tests/lox/` declaran lo que esperan en comentarios, y
 `tests/e2e_test.go` compila glox y los verifica:
@@ -316,6 +317,20 @@ vale la pena mirar:
   llega a ejecutarse, porque el error es estático.
 - `control/logicos_cortocircuito.lox`: `and`/`or` devuelven el operando que
   decidió y no evalúan el otro.
+
+Los de `tests/bytecode/` son una expresión suelta cada uno y se corren con
+`--disassemble`. Declaran además las instrucciones que tiene que mostrar el
+listado, y `// expect:` es el resultado que imprime la VM:
+
+```lox
+// Los paréntesis cambian el orden de las instrucciones y no emiten ninguna.
+// ops: OP_CONSTANT OP_CONSTANT OP_ADD OP_CONSTANT OP_MULTIPLY OP_RETURN
+(2 + 3) * 4 // expect: 20
+```
+
+Como las reglas de cada operador están escritas dos veces (en el intérprete y
+en la VM), lo que garantiza que no se desvíen es compararlas: los tests de
+`treewalk_test.go` usan al intérprete tree-walk como oráculo de la VM.
 
 ```bash
 go test ./tests -v                 # solo end-to-end, con el detalle de cada script
