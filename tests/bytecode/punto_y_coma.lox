@@ -1,0 +1,4 @@
+// exit: 65
+// stderr: [línea 4] Error de sintaxis en ';': se esperaba el final de la expresión.
+// La entrada es una expresión, no una sentencia.
+1 + 2;

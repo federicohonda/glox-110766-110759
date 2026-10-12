@@ -1,0 +1,3 @@
+// Un literal solo también es una expresión: una constante y nada más.
+// ops: OP_CONSTANT OP_RETURN
+nil // expect: nil

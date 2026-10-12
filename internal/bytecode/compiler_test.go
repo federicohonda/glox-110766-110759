@@ -207,6 +207,19 @@ func TestCompileConstruccionesTodaviaNoSoportadas(t *testing.T) {
 		{"f(1)", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las llamadas."},
 		// El error puede estar en cualquier profundidad del árbol.
 		{"1 + 2 *\n(3 - x)", "[línea 2] Error de compilación: el compilador a bytecode todavía no soporta las variables."},
+		{"-(1 < 2)", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '<'."},
+		{"(1 + 2) == 3", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '=='."},
+		{"f(1) + 2", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las llamadas."},
+		// El resto de los operadores que faltan.
+		{"1 > 2", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '>'."},
+		{"1 >= 2", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '>='."},
+		{"1 <= 2", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '<='."},
+		{"1 != 2", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '!='."},
+		{"nil or 1", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador 'or'."},
+		{"!!true", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '!'."},
+		// Se corta en el primer error: de los dos problemas, se reporta el de
+		// la línea 1.
+		{"x +\ny()", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las variables."},
 	}
 
 	for _, tt := range tests {
@@ -222,5 +235,108 @@ func TestCompileConstruccionesTodaviaNoSoportadas(t *testing.T) {
 				t.Errorf("mensaje = %q, esperado %q", err.Error(), tt.expected)
 			}
 		})
+	}
+}
+
+// Precedencia con paréntesis anidados: lo que está más adentro se emite
+// primero, sin importar en qué orden está escrito.
+func TestCompileParentesisAnidados(t *testing.T) {
+	tests := []struct {
+		source   string
+		expected string
+	}{
+		{
+			"((1 + 2) * (3 - (8 / (6 % 4))))",
+			"OP_CONSTANT 1, OP_CONSTANT 2, OP_ADD, OP_CONSTANT 3, OP_CONSTANT 8, OP_CONSTANT 6, OP_CONSTANT 4, OP_MODULO, OP_DIVIDE, OP_SUBTRACT, OP_MULTIPLY, OP_RETURN",
+		},
+		{
+			// Anidado hacia la derecha: se apilan todos los operandos antes
+			// de la primera suma.
+			"1 + (2 + (3 + (4 + 5)))",
+			"OP_CONSTANT 1, OP_CONSTANT 2, OP_CONSTANT 3, OP_CONSTANT 4, OP_CONSTANT 5, OP_ADD, OP_ADD, OP_ADD, OP_ADD, OP_RETURN",
+		},
+		{
+			// Anidado hacia la izquierda: nunca hay más de dos valores apilados.
+			"(((1 + 2) + 3) + 4) + 5",
+			"OP_CONSTANT 1, OP_CONSTANT 2, OP_ADD, OP_CONSTANT 3, OP_ADD, OP_CONSTANT 4, OP_ADD, OP_CONSTANT 5, OP_ADD, OP_RETURN",
+		},
+		{
+			"2 * (3 + 4) * 5",
+			"OP_CONSTANT 2, OP_CONSTANT 3, OP_CONSTANT 4, OP_ADD, OP_MULTIPLY, OP_CONSTANT 5, OP_MULTIPLY, OP_RETURN",
+		},
+		{
+			"-(-(-(1)))",
+			"OP_CONSTANT 1, OP_NEGATE, OP_NEGATE, OP_NEGATE, OP_RETURN",
+		},
+		{
+			"-((1 + 2) * -(3 - 4))",
+			"OP_CONSTANT 1, OP_CONSTANT 2, OP_ADD, OP_CONSTANT 3, OP_CONSTANT 4, OP_SUBTRACT, OP_NEGATE, OP_MULTIPLY, OP_NEGATE, OP_RETURN",
+		},
+		{
+			"(1 + 2) % (3 * 4)",
+			"OP_CONSTANT 1, OP_CONSTANT 2, OP_ADD, OP_CONSTANT 3, OP_CONSTANT 4, OP_MULTIPLY, OP_MODULO, OP_RETURN",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.source, func(t *testing.T) {
+			if got := instructions(mustCompile(t, tt.source)); got != tt.expected {
+				t.Errorf("Compile(%q)\n obtenido: %s\n esperado: %s", tt.source, got, tt.expected)
+			}
+		})
+	}
+}
+
+// Los paréntesis que no cambian el orden no dejan rastro en el bytecode, por
+// más niveles que haya.
+func TestCompileParentesisRedundantes(t *testing.T) {
+	expected := mustCompile(t, "1 + 2 * 3")
+
+	sources := []string{
+		"(1 + 2 * 3)",
+		"1 + (2 * 3)",
+		"(1) + ((2) * (3))",
+		"((((1)))) + ((((2 * 3))))",
+		strings.Repeat("(", 500) + "1 + 2 * 3" + strings.Repeat(")", 500),
+	}
+
+	for i, source := range sources {
+		t.Run(fmt.Sprintf("caso %d", i), func(t *testing.T) {
+			chunk := mustCompile(t, source)
+			if !slices.Equal(chunk.Code, expected.Code) {
+				t.Errorf("Code = %v, esperado %v", chunk.Code, expected.Code)
+			}
+			if !slices.Equal(chunk.Constants, expected.Constants) {
+				t.Errorf("Constants = %v, esperado %v", chunk.Constants, expected.Constants)
+			}
+		})
+	}
+}
+
+// La última constante que entra en la tabla usa el índice 255, el más grande
+// que se puede escribir en un byte.
+func TestCompileUltimoIndiceDeConstante(t *testing.T) {
+	chunk := mustCompile(t, sumOf(256))
+
+	// El chunk termina en: OP_CONSTANT 255, OP_ADD, OP_RETURN.
+	tail := chunk.Code[len(chunk.Code)-4:]
+	expected := []byte{byte(bytecode.OpConstant), 255, byte(bytecode.OpAdd), byte(bytecode.OpReturn)}
+	if !slices.Equal(tail, expected) {
+		t.Errorf("final del chunk = %v, esperado %v", tail, expected)
+	}
+
+	listing := chunk.Disassemble("lleno")
+	if !strings.Contains(listing, "OP_CONSTANT       255 '1'") {
+		t.Errorf("el listado no muestra la constante 255:\n%s", listing[len(listing)-200:])
+	}
+}
+
+func TestCompileSinExpresion(t *testing.T) {
+	chunk, err := bytecode.Compile(nil)
+	if chunk != nil {
+		t.Error("se esperaba un chunk nil junto con el error")
+	}
+	if err == nil {
+		t.Fatal("Compile(nil) no devolvió error")
 	}
 }

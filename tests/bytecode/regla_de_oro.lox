@@ -1,0 +1,5 @@
+// exit: 70
+// stderr: división por cero
+// Los dos operandos se evalúan antes de mirar los tipos: falla la división
+// de adentro y no el producto de un string por un número.
+"a" * (1 / 0)

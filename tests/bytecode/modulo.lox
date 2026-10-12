@@ -1,0 +1,3 @@
+// El módulo toma el signo del dividendo.
+// ops: OP_CONSTANT OP_NEGATE OP_CONSTANT OP_MODULO OP_RETURN
+-7 % 3 // expect: -1

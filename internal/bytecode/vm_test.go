@@ -2,6 +2,9 @@ package bytecode_test
 
 import (
 	"errors"
+	"math"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/federicohonda/glox-110766-110759/internal/bytecode"
@@ -116,8 +119,9 @@ func TestVMErroresDeRuntime(t *testing.T) {
 	}
 }
 
-// Una misma VM puede ejecutar varios chunks seguidos (es lo que hace el REPL):
-// cada Run arranca con la pila vacía, también si el anterior terminó en error.
+// Una misma VM puede ejecutar varios chunks seguidos (es lo que va a hacer el
+// REPL): el resultado de un Run no depende de lo que haya dejado el anterior
+// en la pila, tampoco si terminó en error con valores a medio calcular.
 func TestVMSeReutilizaEntreChunks(t *testing.T) {
 	vm := bytecode.NewVM()
 
@@ -179,4 +183,274 @@ func TestVMChunkMalFormado(t *testing.T) {
 			t.Error("un chunk vacío tenía que dar error")
 		}
 	})
+}
+
+func TestVMParentesisAnidados(t *testing.T) {
+	tests := []struct {
+		source   string
+		expected float64
+	}{
+		{"((1 + 2) * (3 - (8 / (6 % 4))))", -3},
+		{"1 + (2 + (3 + (4 + 5)))", 15},
+		{"(((1 + 2) + 3) + 4) + 5", 15},
+		{"2 * (3 + 4) * 5", 70},
+		{"2 * 3 + 4 * 5", 26},
+		{"-(-(-(1)))", -1},
+		{"-((1 + 2) * -(3 - 4))", -3},
+		{"(1 + 2) % (3 * 4)", 3},
+		{"(2 + 3) * (4 + 5) - (6 / (1 + 1))", 42},
+		{"((((((7))))))", 7},
+		// Los mismos números con otra agrupación dan otra cosa.
+		{"100 / 10 / 5", 2},
+		{"100 / (10 / 5)", 50},
+		{"10 - 4 - 3", 3},
+		{"10 - (4 - 3)", 9},
+		{strings.Repeat("(", 500) + "1 + 2 * 3" + strings.Repeat(")", 500), 7},
+	}
+
+	for _, tt := range tests {
+		name := tt.source
+		if len(name) > 40 {
+			name = name[:40]
+		}
+		t.Run(name, func(t *testing.T) {
+			if got := mustRun(t, tt.source); got != tt.expected {
+				t.Errorf("Run(%q) = %v, esperado %v", tt.source, got, tt.expected)
+			}
+		})
+	}
+}
+
+// En glox dividir por cero es un error de runtime (en el Lox del libro da
+// infinito). Vale para cualquier forma de llegar a un divisor cero.
+func TestVMDivisionYModuloPorCero(t *testing.T) {
+	tests := []struct {
+		source   string
+		expected string
+	}{
+		{"1 / 0", "[línea 1] Error en tiempo de ejecución en '/': división por cero."},
+		{"0 / 0", "[línea 1] Error en tiempo de ejecución en '/': división por cero."},
+		{"1 / (2 - 2)", "[línea 1] Error en tiempo de ejecución en '/': división por cero."},
+		{"1 / (0 * 5)", "[línea 1] Error en tiempo de ejecución en '/': división por cero."},
+		// El cero negativo también es cero.
+		{"1 / -0", "[línea 1] Error en tiempo de ejecución en '/': división por cero."},
+		{"5 % 0", "[línea 1] Error en tiempo de ejecución en '%': módulo por cero."},
+		{"0 % 0", "[línea 1] Error en tiempo de ejecución en '%': módulo por cero."},
+		{"5 % (3 - 3)", "[línea 1] Error en tiempo de ejecución en '%': módulo por cero."},
+		// Lo que ya se había calculado antes de la división no la salva.
+		{"1 + 2 * 3 - 4 / 0", "[línea 1] Error en tiempo de ejecución en '/': división por cero."},
+		{"8 / 4 /\n0", "[línea 1] Error en tiempo de ejecución en '/': división por cero."},
+		{"8 / 4\n/ 0", "[línea 2] Error en tiempo de ejecución en '/': división por cero."},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.source, func(t *testing.T) {
+			_, err := runSource(t, tt.source)
+			var runtimeErr *bytecode.RuntimeError
+			if !errors.As(err, &runtimeErr) {
+				t.Fatalf("se esperaba un *RuntimeError, se obtuvo: %v", err)
+			}
+			if err.Error() != tt.expected {
+				t.Errorf("mensaje = %q\n esperado %q", err.Error(), tt.expected)
+			}
+		})
+	}
+}
+
+// Con el cero como dividendo no hay ningún error.
+func TestVMCeroComoDividendo(t *testing.T) {
+	for _, source := range []string{"0 / 5", "0 % 5", "0 / -5", "(1 - 1) / 2"} {
+		t.Run(source, func(t *testing.T) {
+			if got := mustRun(t, source); got != 0.0 {
+				t.Errorf("Run(%q) = %v, esperado 0", source, got)
+			}
+		})
+	}
+}
+
+// El módulo toma el signo del dividendo y acepta decimales (math.Mod).
+func TestVMModulo(t *testing.T) {
+	tests := []struct {
+		source   string
+		expected float64
+	}{
+		{"5 % 3", 2},
+		{"-5 % 3", -2},
+		{"5 % -3", 2},
+		{"-5 % -3", -2},
+		{"5.5 % 2", 1.5},
+		{"3 % 5", 3},
+		{"6 % 3", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.source, func(t *testing.T) {
+			if got := mustRun(t, tt.source); got != tt.expected {
+				t.Errorf("Run(%q) = %v, esperado %v", tt.source, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestVMErroresDeTipoEnCadaOperador(t *testing.T) {
+	const prefix = "[línea 1] Error en tiempo de ejecución en "
+	tests := []struct {
+		source   string
+		expected string
+	}{
+		{`"a" + 1`, "'+': los operandos de '+' deben ser dos números o dos cadenas, se obtuvo: a y 1"},
+		{"true + false", "'+': los operandos de '+' deben ser dos números o dos cadenas, se obtuvo: true y false"},
+		{`"a" + nil`, "'+': los operandos de '+' deben ser dos números o dos cadenas, se obtuvo: a y nil"},
+		{`1 - "a"`, "'-': los operandos de '-' deben ser números, se obtuvo: 1 y a"},
+		{`"a" * "b"`, "'*': los operandos de '*' deben ser números, se obtuvo: a y b"},
+		{`"a" / 2`, "'/': los operandos de '/' deben ser números, se obtuvo: a y 2"},
+		{"2 / nil", "'/': los operandos de '/' deben ser números, se obtuvo: 2 y nil"},
+		{`"a" % 2`, "'%': los operandos de '%' deben ser números, se obtuvo: a y 2"},
+		{"2 % true", "'%': los operandos de '%' deben ser números, se obtuvo: 2 y true"},
+		{"-nil", "'-': el operando de '-' debe ser un número, se obtuvo: nil"},
+		{"-true", "'-': el operando de '-' debe ser un número, se obtuvo: true"},
+		{`--"a"`, "'-': el operando de '-' debe ser un número, se obtuvo: a"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.source, func(t *testing.T) {
+			_, err := runSource(t, tt.source)
+			if err == nil {
+				t.Fatalf("Run(%q) no devolvió error", tt.source)
+			}
+			if err.Error() != prefix+tt.expected {
+				t.Errorf("mensaje = %q\n esperado %q", err.Error(), prefix+tt.expected)
+			}
+		})
+	}
+}
+
+// Regla de oro: cuando una expresión tiene más de un error posible, se
+// reporta el que aparece primero al evaluar de izquierda a derecha y de
+// adentro hacia afuera.
+func TestVMReglaDeOro(t *testing.T) {
+	tests := []struct {
+		name     string
+		source   string
+		expected string
+	}{
+		{"el operando se evalúa antes de mirar los tipos", `"a" * (1 / 0)`, "división por cero."},
+		{"el izquierdo antes que el derecho", `(1 / 0) + ("a" - 1)`, "división por cero."},
+		{"el izquierdo antes que el derecho, al revés", `("a" - 1) + (1 / 0)`, "los operandos de '-' deben ser números, se obtuvo: a y 1"},
+		{"los tipos antes que el divisor", `"a" / 0`, "los operandos de '/' deben ser números, se obtuvo: a y 0"},
+		{"el unario antes que el binario que lo contiene", `-"a" + (1 / 0)`, "el operando de '-' debe ser un número, se obtuvo: a"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := runSource(t, tt.source)
+			if err == nil {
+				t.Fatalf("Run(%q) no devolvió error", tt.source)
+			}
+			if !strings.HasSuffix(err.Error(), ": "+tt.expected) {
+				t.Errorf("Run(%q) dio %q, se esperaba que termine en %q", tt.source, err.Error(), tt.expected)
+			}
+		})
+	}
+}
+
+// Los números son float64: la aritmética tiene sus mismas rarezas, y la VM no
+// las tiene que esconder ni convertir en errores.
+func TestVMPuntoFlotante(t *testing.T) {
+	t.Run("0.1 + 0.2 no es exactamente 0.3", func(t *testing.T) {
+		a, b := 0.1, 0.2
+		if got := mustRun(t, "0.1 + 0.2"); got != a+b || got == 0.3 {
+			t.Errorf("Run = %v, esperado %v", got, a+b)
+		}
+	})
+
+	t.Run("cero negativo", func(t *testing.T) {
+		for _, source := range []string{"-0", "0 * -1", "-(1 - 1)"} {
+			got, ok := mustRun(t, source).(float64)
+			if !ok || got != 0 || !math.Signbit(got) {
+				t.Errorf("Run(%q) = %v, esperado -0", source, got)
+			}
+		}
+	})
+
+	huge := "1" + strings.Repeat("0", 200)
+
+	t.Run("irse de rango da infinito, no un error", func(t *testing.T) {
+		if got, ok := mustRun(t, huge+" * "+huge).(float64); !ok || !math.IsInf(got, 1) {
+			t.Errorf("Run = %v, esperado +Inf", got)
+		}
+		if got, ok := mustRun(t, "-"+huge+" * "+huge).(float64); !ok || !math.IsInf(got, -1) {
+			t.Errorf("Run = %v, esperado -Inf", got)
+		}
+	})
+
+	t.Run("infinito menos infinito da NaN", func(t *testing.T) {
+		source := huge + " * " + huge + " - " + huge + " * " + huge
+		if got, ok := mustRun(t, source).(float64); !ok || !math.IsNaN(got) {
+			t.Errorf("Run = %v, esperado NaN", got)
+		}
+	})
+}
+
+func TestVMStrings(t *testing.T) {
+	tests := []struct {
+		source   string
+		expected string
+	}{
+		{`""`, ""},
+		{`"" + ""`, ""},
+		{`"a" + ""`, "a"},
+		// Sin coerción: concatenar dos strings con dígitos no los suma.
+		{`"1" + "2"`, "12"},
+		{`("a" + "b") + ("c" + "d")`, "abcd"},
+		{"\"dos\nlíneas\" + \"!\"", "dos\nlíneas!"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.source, func(t *testing.T) {
+			if got := mustRun(t, tt.source); got != tt.expected {
+				t.Errorf("Run(%q) = %q, esperado %q", tt.source, got, tt.expected)
+			}
+		})
+	}
+}
+
+// Con la tabla de constantes llena (256), la VM lee bien hasta la última:
+// 1 + 2 + ... + 256.
+func TestVMConLaTablaDeConstantesLlena(t *testing.T) {
+	terms := make([]string, 256)
+	for i := range terms {
+		terms[i] = strconv.Itoa(i + 1)
+	}
+
+	if got := mustRun(t, strings.Join(terms, " + ")); got != 32896.0 {
+		t.Errorf("Run = %v, esperado 32896", got)
+	}
+}
+
+// La pila arranca con lugar para 256 valores pero no es un tope. El
+// compilador no puede generar una pila más profunda que eso (cada valor
+// apilado gasta una constante), así que se arma el chunk a mano: se apila
+// mil veces la misma constante y después se suma todo.
+func TestVMLaPilaCreceMasAllaDeLaCapacidadInicial(t *testing.T) {
+	const depth = 1000
+
+	var chunk bytecode.Chunk
+	index := byte(chunk.AddConstant(1.0))
+	for range depth {
+		chunk.WriteOp(bytecode.OpConstant, 1)
+		chunk.Write(index, 1)
+	}
+	for range depth - 1 {
+		chunk.WriteOp(bytecode.OpAdd, 1)
+	}
+	chunk.WriteOp(bytecode.OpReturn, 1)
+
+	got, err := bytecode.NewVM().Run(&chunk)
+	if err != nil {
+		t.Fatalf("Run falló con error: %v", err)
+	}
+	if got != float64(depth) {
+		t.Errorf("Run = %v, esperado %d", got, depth)
+	}
 }

@@ -1,0 +1,3 @@
+// exit: 70
+// stderr: [línea 3] Error en tiempo de ejecución en '-': el operando de '-' debe ser un número, se obtuvo: hola
+-"hola"

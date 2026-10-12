@@ -10,6 +10,13 @@
 // Además se verifica que los programas de examples/ produzcan exactamente la
 // salida guardada en tests/golden/, y que los scripts de benchmarks/ den el
 // resultado que declaran.
+//
+// Los scripts de tests/bytecode se corren con --disassemble. Cada uno es una
+// expresión suelta y usa los mismos comentarios, más uno propio:
+//
+//	// ops: OP_CONSTANT OP_NEGATE OP_RETURN   las instrucciones del listado, en orden
+//
+// En ellos `// expect:` es el resultado que imprime la VM.
 package tests
 
 import (
@@ -74,12 +81,15 @@ var (
 	expectRe = regexp.MustCompile(`// expect: ?(.*)$`)
 	exitRe   = regexp.MustCompile(`^// exit: (\d+)`)
 	stderrRe = regexp.MustCompile(`^// stderr: (.+)$`)
+	opsRe    = regexp.MustCompile(`^// ops: (.+)$`)
 )
 
 type expectations struct {
 	stdout []string
 	exit   int
 	stderr []string
+	// ops solo lo usan los scripts de tests/bytecode.
+	ops []string
 }
 
 func parseExpectations(t *testing.T, path string) expectations {
@@ -99,6 +109,9 @@ func parseExpectations(t *testing.T, path string) expectations {
 		}
 		if m := stderrRe.FindStringSubmatch(trimmed); m != nil {
 			e.stderr = append(e.stderr, m[1])
+		}
+		if m := opsRe.FindStringSubmatch(trimmed); m != nil {
+			e.ops = strings.Fields(m[1])
 		}
 	}
 	return e
@@ -290,6 +303,196 @@ func TestModoDisassemble(t *testing.T) {
 	}, "\n")
 	if got.stdout != want {
 		t.Errorf("salida de --disassemble distinta\n--- obtenido\n%s--- esperado\n%s", got.stdout, want)
+	}
+}
+
+// splitDisassemble separa la salida de --disassemble en sus dos secciones:
+// los nombres de las instrucciones del listado y las líneas del resultado.
+func splitDisassemble(t *testing.T, stdout string) (ops, result []string) {
+	t.Helper()
+	lines := splitLines(stdout)
+	if len(lines) == 0 || lines[0] != "== COMPILETIME ==" {
+		t.Fatalf("la salida no empieza con el listado del bytecode:\n%s", stdout)
+	}
+	for i, line := range lines[1:] {
+		if line == "== RUNTIME ==" {
+			return ops, lines[i+2:]
+		}
+		// Cada línea del listado es: offset, línea del fuente (o '|'),
+		// instrucción y, si tiene, su operando.
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			t.Fatalf("línea del listado con formato inesperado: %q", line)
+		}
+		ops = append(ops, fields[2])
+	}
+	t.Fatalf("la salida no tiene la sección == RUNTIME ==:\n%s", stdout)
+	return nil, nil
+}
+
+func TestBytecodeScripts(t *testing.T) {
+	files, err := filepath.Glob("bytecode/*.lox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Fatal("no se encontraron scripts en tests/bytecode")
+	}
+	for _, path := range files {
+		name := strings.TrimSuffix(filepath.Base(path), ".lox")
+		t.Run(name, func(t *testing.T) {
+			want := parseExpectations(t, path)
+			got := runGlox(t, "--disassemble", path)
+
+			if got.exit != want.exit {
+				t.Errorf("código de salida = %d, se esperaba %d\nstderr:\n%s", got.exit, want.exit, got.stderr)
+			}
+			for _, fragment := range want.stderr {
+				if !strings.Contains(got.stderr, fragment) {
+					t.Errorf("stderr no contiene %q\nstderr:\n%s", fragment, got.stderr)
+				}
+			}
+			if len(want.stderr) == 0 && got.stderr != "" {
+				t.Errorf("stderr inesperado:\n%s", got.stderr)
+			}
+
+			// Un error estático corta antes de generar bytecode: no se
+			// muestra ni se ejecuta nada.
+			if want.exit == 65 {
+				if got.stdout != "" {
+					t.Errorf("con un error estático no se esperaba nada en stdout:\n%s", got.stdout)
+				}
+				return
+			}
+
+			ops, result := splitDisassemble(t, got.stdout)
+			if want.ops != nil && strings.Join(ops, " ") != strings.Join(want.ops, " ") {
+				t.Errorf("instrucciones distintas\n--- obtenido\n%s\n--- esperado\n%s", strings.Join(ops, " "), strings.Join(want.ops, " "))
+			}
+			if strings.Join(result, "\n") != strings.Join(want.stdout, "\n") {
+				t.Errorf("resultado distinto\n--- obtenido\n%s\n--- esperado\n%s", strings.Join(result, "\n"), strings.Join(want.stdout, "\n"))
+			}
+		})
+	}
+}
+
+// En el REPL, --disassemble trata cada línea como una expresión aparte: un
+// error en una no corta la sesión ni afecta a las que siguen, y una línea
+// vacía no hace nada.
+func TestDisassembleREPL(t *testing.T) {
+	cmd := exec.Command(gloxBin, "--disassemble")
+	cmd.Stdin = strings.NewReader("1 + 2\n\n1 / 0\n1 +\n1 < 2\n3 * 3\n")
+	var out, errOut bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errOut
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("el REPL terminó con error: %v", err)
+	}
+
+	stdout := strings.ReplaceAll(out.String(), "> ", "")
+	want := strings.Join([]string{
+		"== COMPILETIME ==",
+		"0000    1 OP_CONSTANT         0 '1'",
+		"0002    | OP_CONSTANT         1 '2'",
+		"0004    | OP_ADD",
+		"0005    | OP_RETURN",
+		"== RUNTIME ==",
+		"3",
+		// 1 / 0: se compila bien y falla recién al ejecutar.
+		"== COMPILETIME ==",
+		"0000    1 OP_CONSTANT         0 '1'",
+		"0002    | OP_CONSTANT         1 '0'",
+		"0004    | OP_DIVIDE",
+		"0005    | OP_RETURN",
+		"== RUNTIME ==",
+		// `1 +` y `1 < 2` son errores estáticos: no dejan nada en stdout.
+		"== COMPILETIME ==",
+		"0000    1 OP_CONSTANT         0 '3'",
+		"0002    | OP_CONSTANT         1 '3'",
+		"0004    | OP_MULTIPLY",
+		"0005    | OP_RETURN",
+		"== RUNTIME ==",
+		"9",
+		"",
+	}, "\n")
+	if stdout != want {
+		t.Errorf("stdout distinto\n--- obtenido\n%s--- esperado\n%s", stdout, want)
+	}
+
+	wantErrs := []string{
+		"[línea 1] Error en tiempo de ejecución en '/': división por cero.",
+		"[línea 1] Error de sintaxis al final: se esperaba una expresión.",
+		"[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '<'.",
+	}
+	if got := splitLines(errOut.String()); strings.Join(got, "\n") != strings.Join(wantErrs, "\n") {
+		t.Errorf("stderr distinto\n--- obtenido\n%s\n--- esperado\n%s", errOut.String(), strings.Join(wantErrs, "\n"))
+	}
+}
+
+// Un archivo sin ninguna expresión (vacío o solo con comentarios) no es un
+// error: no hay nada que compilar.
+func TestDisassembleEntradaVacia(t *testing.T) {
+	for name, content := range map[string]string{
+		"vacío":            "",
+		"solo comentarios": "// nada por acá\n\n// ni por acá\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "vacio.lox")
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			got := runGlox(t, "--disassemble", path)
+			if got.exit != 0 || got.stdout != "" || got.stderr != "" {
+				t.Errorf("exit = %d, stdout = %q, stderr = %q; se esperaba 0 y nada en la salida", got.exit, got.stdout, got.stderr)
+			}
+		})
+	}
+}
+
+// Las mismas expresiones dan lo mismo por los dos caminos del CLI: el
+// tree-walk con `print <expr>;` y la VM con --disassemble. Es la comparación
+// de los tests unitarios de internal/bytecode, pero sobre el binario real.
+func TestDisassembleCoincideConElTreeWalk(t *testing.T) {
+	sources := []string{
+		"2 + 3 * 4",
+		"(2 + 3) * 4",
+		"-(1.5 + 2.5) / 8",
+		"7 % 3 - 10 / 4",
+		"1 / 3",
+		`"ab" + "cd"`,
+		"1 / 0",
+		"10 % (2 - 2)",
+		`1 + "a"`,
+		`-"a"`,
+		`"a" * (1 / 0)`,
+	}
+
+	for _, source := range sources {
+		t.Run(source, func(t *testing.T) {
+			dir := t.TempDir()
+			exprPath := filepath.Join(dir, "expr.lox")
+			stmtPath := filepath.Join(dir, "stmt.lox")
+			if err := os.WriteFile(exprPath, []byte(source), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(stmtPath, []byte("print "+source+";"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			treeWalk := runGlox(t, stmtPath)
+			vm := runGlox(t, "--disassemble", exprPath)
+
+			if vm.exit != treeWalk.exit {
+				t.Errorf("código de salida: VM %d, tree-walk %d", vm.exit, treeWalk.exit)
+			}
+			if vm.stderr != treeWalk.stderr {
+				t.Errorf("stderr distinto\n--- VM\n%s--- tree-walk\n%s", vm.stderr, treeWalk.stderr)
+			}
+			_, result := splitDisassemble(t, vm.stdout)
+			if strings.Join(result, "\n") != strings.Join(splitLines(treeWalk.stdout), "\n") {
+				t.Errorf("resultado distinto\n--- VM\n%s\n--- tree-walk\n%s", strings.Join(result, "\n"), treeWalk.stdout)
+			}
+		})
 	}
 }
 
