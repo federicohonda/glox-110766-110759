@@ -162,6 +162,57 @@ func (vm *VM) Run(chunk *Chunk) (Value, error) {
 			slot := int(vm.readByte())
 			vm.stack[slot] = vm.peek(0)
 
+		case OpNot:
+			vm.push(!isTruthy(vm.pop()))
+
+		case OpEqual:
+			right, left := vm.pop(), vm.pop()
+			vm.push(isEqual(left, right))
+
+		case OpGreater:
+			left, right, err := vm.popNumbers(offset, ">")
+			if err != nil {
+				return nil, err
+			}
+			vm.push(left > right)
+
+		case OpGreaterEqual:
+			left, right, err := vm.popNumbers(offset, ">=")
+			if err != nil {
+				return nil, err
+			}
+			vm.push(left >= right)
+
+		case OpLess:
+			left, right, err := vm.popNumbers(offset, "<")
+			if err != nil {
+				return nil, err
+			}
+			vm.push(left < right)
+
+		case OpLessEqual:
+			left, right, err := vm.popNumbers(offset, "<=")
+			if err != nil {
+				return nil, err
+			}
+			vm.push(left <= right)
+
+		case OpJump:
+			offsetJump := int(vm.readShort())
+			vm.ip += offsetJump
+
+		case OpJumpIfFalse:
+			offsetJump := int(vm.readShort())
+			if !isTruthy(vm.peek(0)) {
+				vm.ip += offsetJump
+			}
+
+		case OpJumpIfTrue:
+			offsetJump := int(vm.readShort())
+			if isTruthy(vm.peek(0)) {
+				vm.ip += offsetJump
+			}
+
 		case OpReturn:
 			if len(vm.stack) == 0 {
 				return nil, nil
@@ -180,6 +231,33 @@ func (vm *VM) readByte() byte {
 	b := vm.chunk.Code[vm.ip]
 	vm.ip++
 	return b
+}
+
+func (vm *VM) readShort() uint16 {
+	high := uint16(vm.chunk.Code[vm.ip])
+	low := uint16(vm.chunk.Code[vm.ip+1])
+	vm.ip += 2
+	return (high << 8) | low
+}
+
+func isTruthy(val Value) bool {
+	if val == nil {
+		return false
+	}
+	if b, ok := val.(bool); ok {
+		return b
+	}
+	return true
+}
+
+func isEqual(a, b Value) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a == b
 }
 
 func (vm *VM) push(value Value) {

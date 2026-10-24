@@ -75,8 +75,8 @@ $ ./glox --parsing /tmp/t.lox
 `--disassemble` es la parte visible del Bloque 2: en vez de recorrer
 el AST, lo compila a bytecode y lo ejecuta en una máquina virtual de pila.
 Muestra primero el listado del bytecode y después el resultado. El compilador
-soporta sentencias (`print`, expresiones como sentencia, bloques) y variables
-globales y locales (slots en stack):
+soporta sentencias (`print`, expresiones como sentencia, bloques, `if`), variables
+globales y locales (slots en stack) y lógica con saltos (`and`/`or`):
 
 ```text
 $ ./glox --disassemble
@@ -185,7 +185,7 @@ Comparte scanner y parser con el anterior: lo que cambia es qué se hace con el
 | `internal/parser` | Parser recursivo descendente: una función por regla de la gramática. Desazucara `for` a `while`. Se recupera de los errores sincronizando hasta la próxima sentencia. |
 | `internal/resolver` | Análisis semántico estático: calcula la distancia de scope de cada variable local y detecta `return` fuera de funciones, lecturas de una variable en su propio inicializador y redeclaraciones locales. |
 | `internal/interpreter` | Evaluación con `type switch`, `Environment` encadenado, funciones con closures. |
-| `internal/bytecode` | Bloque 2, en construcción. `Chunk` (bytecode + tabla de constantes + línea de cada byte), el juego de instrucciones (`OpCode`), un disassembler, el compilador (recorre en postorden el mismo AST que usa el intérprete) y la VM de pila. Cubre expresiones aritméticas, sentencias print y variables globales y locales (slots en stack). |
+| `internal/bytecode` | Bloque 2, en construcción. `Chunk` (bytecode + tabla de constantes + línea de cada byte), el juego de instrucciones (`OpCode`), un disassembler, el compilador (recorre en postorden el mismo AST que usa el intérprete) y la VM de pila. Cubre expresiones aritméticas, comparaciones, lógica, sentencias print, if/else y variables globales y locales. |
 
 ### Gramática implementada
 

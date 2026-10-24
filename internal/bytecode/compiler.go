@@ -28,13 +28,18 @@ func (e *CompileError) Error() string {
 }
 
 // binaryOps es la instrucción que corresponde a cada operador aritmético
-// binario.
+// y relacional binario (salvo BANG_EQUAL que emite OpEqual + OpNot).
 var binaryOps = map[token.TokenType]OpCode{
-	token.PLUS:    OpAdd,
-	token.MINUS:   OpSubtract,
-	token.STAR:    OpMultiply,
-	token.SLASH:   OpDivide,
-	token.PERCENT: OpModulo,
+	token.PLUS:          OpAdd,
+	token.MINUS:         OpSubtract,
+	token.STAR:          OpMultiply,
+	token.SLASH:         OpDivide,
+	token.PERCENT:       OpModulo,
+	token.GREATER:       OpGreater,
+	token.GREATER_EQUAL: OpGreaterEqual,
+	token.LESS:          OpLess,
+	token.LESS_EQUAL:    OpLessEqual,
+	token.EQUAL_EQUAL:   OpEqual,
 }
 
 // local representa una variable local conocida en tiempo de compilación.
@@ -147,7 +152,32 @@ func (c *compiler) statement(stmt ast.Stmt) error {
 		return nil
 
 	case *ast.IfStmt:
-		return unsupported(stmtLine(s), "la sentencia 'if'")
+		line := exprLine(s.Condition)
+		if err := c.expression(s.Condition); err != nil {
+			return err
+		}
+		thenJump := c.emitJump(OpJumpIfFalse, line)
+		c.emit(OpPop, line)
+
+		if err := c.statement(s.ThenBranch); err != nil {
+			return err
+		}
+
+		elseJump := c.emitJump(OpJump, line)
+		if err := c.patchJump(thenJump, line); err != nil {
+			return err
+		}
+		c.emit(OpPop, line)
+
+		if s.ElseBranch != nil {
+			if err := c.statement(s.ElseBranch); err != nil {
+				return err
+			}
+		}
+		if err := c.patchJump(elseJump, line); err != nil {
+			return err
+		}
+		return nil
 
 	case *ast.WhileStmt:
 		return unsupported(stmtLine(s), "el bucle 'while'")
@@ -226,20 +256,21 @@ func (c *compiler) expression(expr ast.Expr) error {
 		return c.expression(e.Expression)
 
 	case *ast.Unary:
-		if e.Operator.Type != token.MINUS {
-			return unsupported(e.Operator.Line, fmt.Sprintf("el operador '%s'", e.Operator.Lexeme))
-		}
 		if err := c.expression(e.Right); err != nil {
 			return err
 		}
-		c.emit(OpNegate, e.Operator.Line)
-		return nil
-
-	case *ast.Binary:
-		op, ok := binaryOps[e.Operator.Type]
-		if !ok {
+		switch e.Operator.Type {
+		case token.MINUS:
+			c.emit(OpNegate, e.Operator.Line)
+			return nil
+		case token.BANG:
+			c.emit(OpNot, e.Operator.Line)
+			return nil
+		default:
 			return unsupported(e.Operator.Line, fmt.Sprintf("el operador '%s'", e.Operator.Lexeme))
 		}
+
+	case *ast.Binary:
 		// Regla de oro de Lox: el código del operando izquierdo va antes que
 		// el del derecho, así sus efectos ocurren en ese orden.
 		if err := c.expression(e.Left); err != nil {
@@ -248,10 +279,37 @@ func (c *compiler) expression(expr ast.Expr) error {
 		if err := c.expression(e.Right); err != nil {
 			return err
 		}
+		if e.Operator.Type == token.BANG_EQUAL {
+			c.emit(OpEqual, e.Operator.Line)
+			c.emit(OpNot, e.Operator.Line)
+			return nil
+		}
+		op, ok := binaryOps[e.Operator.Type]
+		if !ok {
+			return unsupported(e.Operator.Line, fmt.Sprintf("el operador '%s'", e.Operator.Lexeme))
+		}
 		c.emit(op, e.Operator.Line)
 		return nil
 
 	case *ast.Logical:
+		if err := c.expression(e.Left); err != nil {
+			return err
+		}
+		if e.Operator.Type == token.AND {
+			endJump := c.emitJump(OpJumpIfFalse, e.Operator.Line)
+			c.emit(OpPop, e.Operator.Line)
+			if err := c.expression(e.Right); err != nil {
+				return err
+			}
+			return c.patchJump(endJump, e.Operator.Line)
+		} else if e.Operator.Type == token.OR {
+			endJump := c.emitJump(OpJumpIfTrue, e.Operator.Line)
+			c.emit(OpPop, e.Operator.Line)
+			if err := c.expression(e.Right); err != nil {
+				return err
+			}
+			return c.patchJump(endJump, e.Operator.Line)
+		}
 		return unsupported(e.Operator.Line, fmt.Sprintf("el operador '%s'", e.Operator.Lexeme))
 
 	case *ast.Variable:
@@ -357,6 +415,30 @@ func (c *compiler) resolveLocal(name string) int {
 		}
 	}
 	return -1
+}
+
+// emitJump escribe op seguido de 2 bytes placeholder (0xff) y devuelve el
+// offset en chunk.Code del primer byte del operando para su posterior backpatching.
+func (c *compiler) emitJump(op OpCode, line int) int {
+	c.emit(op, line)
+	c.chunk.Write(0xff, line)
+	c.chunk.Write(0xff, line)
+	return len(c.chunk.Code) - 2
+}
+
+// patchJump completa el operando de salto de 2 bytes en offset con la distancia
+// hasta el final actual de chunk.Code.
+func (c *compiler) patchJump(offset int, line int) error {
+	jump := len(c.chunk.Code) - offset - 2
+	if jump > 65535 {
+		return &CompileError{
+			Line:    line,
+			Message: "cuerpo del salto demasiado grande (el máximo es 65535 bytes).",
+		}
+	}
+	c.chunk.Code[offset] = byte((jump >> 8) & 0xff)
+	c.chunk.Code[offset+1] = byte(jump & 0xff)
+	return nil
 }
 
 // unsupported arma el error de una construcción que el lenguaje tiene pero

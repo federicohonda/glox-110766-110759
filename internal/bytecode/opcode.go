@@ -40,6 +40,19 @@ const (
 	OpGetLocal
 	OpSetLocal
 
+	// Operaciones lógicas y de comparación:
+	OpNot
+	OpEqual
+	OpGreater
+	OpGreaterEqual
+	OpLess
+	OpLessEqual
+
+	// Saltos: llevan como operando un offset de 2 bytes (uint16) hacia adelante.
+	OpJump
+	OpJumpIfFalse
+	OpJumpIfTrue
+
 	// OpReturn termina la ejecución del chunk.
 	OpReturn
 )
@@ -59,6 +72,15 @@ var opCodeNames = [...]string{
 	OpSetGlobal:    "OP_SET_GLOBAL",
 	OpGetLocal:     "OP_GET_LOCAL",
 	OpSetLocal:     "OP_SET_LOCAL",
+	OpNot:          "OP_NOT",
+	OpEqual:        "OP_EQUAL",
+	OpGreater:      "OP_GREATER",
+	OpGreaterEqual: "OP_GREATER_EQUAL",
+	OpLess:         "OP_LESS",
+	OpLessEqual:    "OP_LESS_EQUAL",
+	OpJump:         "OP_JUMP",
+	OpJumpIfFalse:  "OP_JUMP_IF_FALSE",
+	OpJumpIfTrue:   "OP_JUMP_IF_TRUE",
 	OpReturn:       "OP_RETURN",
 }
 

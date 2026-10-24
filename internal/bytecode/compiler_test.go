@@ -48,6 +48,11 @@ func instructions(chunk *bytecode.Chunk) string {
 		} else if op == bytecode.OpGetLocal || op == bytecode.OpSetLocal {
 			offset++
 			parts = append(parts, fmt.Sprintf("%s %d", op, chunk.Code[offset]))
+		} else if op == bytecode.OpJump || op == bytecode.OpJumpIfFalse || op == bytecode.OpJumpIfTrue {
+			jump := int(uint16(chunk.Code[offset+1])<<8 | uint16(chunk.Code[offset+2]))
+			target := offset + 3 + jump
+			offset += 2
+			parts = append(parts, fmt.Sprintf("%s %d", op, target))
 		} else {
 			parts = append(parts, op.String())
 		}
@@ -201,23 +206,8 @@ func TestCompileConstruccionesTodaviaNoSoportadas(t *testing.T) {
 		source   string
 		expected string
 	}{
-		{"!true", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '!'."},
-		{"1 < 2", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '<'."},
-		{"1 == 1", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '=='."},
-		{"true and false", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador 'and'."},
 		{"f(1)", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las llamadas."},
-		{"-(1 < 2)", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '<'."},
-		{"(1 + 2) == 3", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '=='."},
 		{"f(1) + 2", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las llamadas."},
-		// El resto de los operadores que faltan.
-		{"1 > 2", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '>'."},
-		{"1 >= 2", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '>='."},
-		{"1 <= 2", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '<='."},
-		{"1 != 2", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '!='."},
-		{"nil or 1", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador 'or'."},
-		{"!!true", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '!'."},
-		// Se corta en el primer error: de los dos problemas, se reporta el de
-		// la línea 1.
 		{"f(1) +\ny()", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las llamadas."},
 	}
 
@@ -345,7 +335,6 @@ func TestCompileProgramSentenciasTodaviaNoSoportadas(t *testing.T) {
 		source   string
 		expected string
 	}{
-		{"if (true) print 1;", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta la sentencia 'if'."},
 		{"while (true) print 1;", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el bucle 'while'."},
 		{"fun f() {}", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las funciones."},
 		{"return 1;", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta la sentencia 'return'."},
@@ -494,6 +483,72 @@ func TestCompileProgramTopeLocales(t *testing.T) {
 		t.Fatal("esperaba error al superar 256 variables locales")
 	}
 	expected := "[línea 259] Error de compilación: demasiadas variables locales en un mismo bloque (el máximo es 256)."
+	if err.Error() != expected {
+		t.Errorf("error = %q, esperado %q", err.Error(), expected)
+	}
+}
+
+func TestCompileComparacionesYLogicos(t *testing.T) {
+	tests := []struct {
+		name     string
+		source   string
+		expected string
+	}{
+		{"not", "!true", "OP_CONSTANT true, OP_NOT, OP_RETURN"},
+		{"not not", "!!false", "OP_CONSTANT false, OP_NOT, OP_NOT, OP_RETURN"},
+		{"less", "1 < 2", "OP_CONSTANT 1, OP_CONSTANT 2, OP_LESS, OP_RETURN"},
+		{"less equal", "1 <= 2", "OP_CONSTANT 1, OP_CONSTANT 2, OP_LESS_EQUAL, OP_RETURN"},
+		{"greater", "1 > 2", "OP_CONSTANT 1, OP_CONSTANT 2, OP_GREATER, OP_RETURN"},
+		{"greater equal", "1 >= 2", "OP_CONSTANT 1, OP_CONSTANT 2, OP_GREATER_EQUAL, OP_RETURN"},
+		{"equal", "1 == 2", "OP_CONSTANT 1, OP_CONSTANT 2, OP_EQUAL, OP_RETURN"},
+		{"bang equal", "1 != 2", "OP_CONSTANT 1, OP_CONSTANT 2, OP_EQUAL, OP_NOT, OP_RETURN"},
+		{"and", "true and false", "OP_CONSTANT true, OP_JUMP_IF_FALSE 8, OP_POP, OP_CONSTANT false, OP_RETURN"},
+		{"or", "true or false", "OP_CONSTANT true, OP_JUMP_IF_TRUE 8, OP_POP, OP_CONSTANT false, OP_RETURN"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chunk := mustCompile(t, tt.source)
+			if got := instructions(chunk); got != tt.expected {
+				t.Errorf("instrucciones = %q, esperado %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestCompileIf(t *testing.T) {
+	t.Run("if sin else", func(t *testing.T) {
+		chunk := mustCompileProgram(t, "if (1 < 2) print 1;")
+		expected := "OP_CONSTANT 1, OP_CONSTANT 2, OP_LESS, OP_JUMP_IF_FALSE 15, OP_POP, OP_CONSTANT 1, OP_PRINT, OP_JUMP 16, OP_POP, OP_RETURN"
+		if got := instructions(chunk); got != expected {
+			t.Errorf("instrucciones = %q, esperado %q", got, expected)
+		}
+	})
+
+	t.Run("if con else", func(t *testing.T) {
+		chunk := mustCompileProgram(t, "if (1 < 2) print 1; else print 2;")
+		expected := "OP_CONSTANT 1, OP_CONSTANT 2, OP_LESS, OP_JUMP_IF_FALSE 15, OP_POP, OP_CONSTANT 1, OP_PRINT, OP_JUMP 19, OP_POP, OP_CONSTANT 2, OP_PRINT, OP_RETURN"
+		if got := instructions(chunk); got != expected {
+			t.Errorf("instrucciones = %q, esperado %q", got, expected)
+		}
+	})
+}
+
+func TestCompileSaltoDemasiadoGrande(t *testing.T) {
+	var sb strings.Builder
+	sb.WriteString("var a = 1;\nif (true) {\n")
+	// 'a = a + a;' genera instrucciones usando constantes ya deduplicadas
+	// (8 bytes por sentencia). 8500 * 8 = 68000 bytes > 65535 bytes.
+	for i := 0; i < 8500; i++ {
+		sb.WriteString("a = a + a;\n")
+	}
+	sb.WriteString("}\n")
+
+	_, err := compileProgramSource(t, sb.String())
+	if err == nil {
+		t.Fatal("esperaba error al superar 65535 bytes de salto")
+	}
+	expected := "[línea 2] Error de compilación: cuerpo del salto demasiado grande (el máximo es 65535 bytes)."
 	if err.Error() != expected {
 		t.Errorf("error = %q, esperado %q", err.Error(), expected)
 	}

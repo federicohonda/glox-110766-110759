@@ -163,6 +163,16 @@ func TestDisassembleChunkMalArmado(t *testing.T) {
 		}
 	})
 
+	t.Run("OpJump sin operando", func(t *testing.T) {
+		var chunk bytecode.Chunk
+		chunk.WriteOp(bytecode.OpJump, 1)
+
+		expected := "== roto ==\n0000    1 OP_JUMP          <falta el operando>\n"
+		if got := chunk.Disassemble("roto"); got != expected {
+			t.Errorf("Disassemble = %q, esperado %q", got, expected)
+		}
+	})
+
 	t.Run("índice de constante inexistente", func(t *testing.T) {
 		var chunk bytecode.Chunk
 		chunk.WriteOp(bytecode.OpConstant, 1)
@@ -193,6 +203,33 @@ func TestDisassembleLocales(t *testing.T) {
 	}, "\n")
 
 	if got := chunk.Disassemble("locales"); got != expected {
+		t.Errorf("Disassemble = %q, esperado %q", got, expected)
+	}
+}
+
+func TestDisassembleSaltos(t *testing.T) {
+	var chunk bytecode.Chunk
+	chunk.WriteOp(bytecode.OpJumpIfFalse, 1)
+	chunk.Write(0x00, 1)
+	chunk.Write(0x07, 1)
+	chunk.WriteOp(bytecode.OpPop, 1)
+	chunk.WriteOp(bytecode.OpJump, 1)
+	chunk.Write(0x00, 1)
+	chunk.Write(0x02, 1)
+	chunk.WriteOp(bytecode.OpPop, 1)
+	chunk.WriteOp(bytecode.OpReturn, 1)
+
+	expected := strings.Join([]string{
+		"== saltos ==",
+		"0000    1 OP_JUMP_IF_FALSE    0 -> 10",
+		"0003    | OP_POP",
+		"0004    | OP_JUMP             4 -> 9",
+		"0007    | OP_POP",
+		"0008    | OP_RETURN",
+		"",
+	}, "\n")
+
+	if got := chunk.Disassemble("saltos"); got != expected {
 		t.Errorf("Disassemble = %q, esperado %q", got, expected)
 	}
 }

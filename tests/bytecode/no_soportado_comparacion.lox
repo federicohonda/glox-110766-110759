@@ -1,4 +1,0 @@
-// exit: 65
-// stderr: [línea 4] Error de compilación: el compilador a bytecode todavía no soporta el operador '<'.
-// Error estático: no se muestra bytecode ni se ejecuta nada.
-print 1 < 2;

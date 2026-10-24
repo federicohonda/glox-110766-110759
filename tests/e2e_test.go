@@ -382,7 +382,7 @@ func TestBytecodeScripts(t *testing.T) {
 // vacía no hace nada.
 func TestDisassembleREPL(t *testing.T) {
 	cmd := exec.Command(gloxBin, "--disassemble")
-	cmd.Stdin = strings.NewReader("var a = 1;\nprint a + 2;\n\n1 / 0;\n1 +;\n1 < 2;\nprint 3 * 3;\n")
+	cmd.Stdin = strings.NewReader("var a = 1;\nprint a + 2;\n\n1 / 0;\n1 +;\nwhile (true) print 1;\nprint 3 * 3;\n")
 	var out, errOut bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errOut
@@ -413,7 +413,7 @@ func TestDisassembleREPL(t *testing.T) {
 		"0005    | OP_POP",
 		"0006    | OP_RETURN",
 		"== RUNTIME ==",
-		// `1 +;` y `1 < 2;` son errores estáticos: no dejan nada en stdout.
+		// `1 +;` y `while (true) print 1;` son errores estáticos: no dejan nada en stdout.
 		"== COMPILETIME ==",
 		"0000    1 OP_CONSTANT         0 '3'",
 		"0002    | OP_CONSTANT         1 '3'",
@@ -431,7 +431,7 @@ func TestDisassembleREPL(t *testing.T) {
 	wantErrs := []string{
 		"[línea 1] Error en tiempo de ejecución en '/': división por cero.",
 		"[línea 1] Error de sintaxis en ';': se esperaba una expresión.",
-		"[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '<'.",
+		"[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el bucle 'while'.",
 	}
 	if got := splitLines(errOut.String()); strings.Join(got, "\n") != strings.Join(wantErrs, "\n") {
 		t.Errorf("stderr distinto\n--- obtenido\n%s\n--- esperado\n%s", errOut.String(), strings.Join(wantErrs, "\n"))
@@ -476,6 +476,12 @@ func TestDisassembleCoincideConElTreeWalk(t *testing.T) {
 		`print "a" * (1 / 0);`,
 		"var a = 1; { var a = 2; print a; } print a;",
 		"{ var x = 10; x = x + 5; print x; }",
+		`if (1 < 2) print "si"; else print "no";`,
+		"print false and 1;",
+		"print true or 1;",
+		"print 1 < 2;",
+		"print 1 == 1;",
+		"print 1 != 2;",
 	}
 
 	for _, source := range sources {

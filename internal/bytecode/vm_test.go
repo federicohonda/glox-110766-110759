@@ -651,3 +651,106 @@ func TestVMReutilizacionConLocales(t *testing.T) {
 		t.Errorf("salida = %q, esperado %q", got, expected)
 	}
 }
+
+func TestVMComparaciones(t *testing.T) {
+	tests := []struct {
+		source   string
+		expected string
+	}{
+		{"print !true;", "false\n"},
+		{"print !false;", "true\n"},
+		{"print !nil;", "true\n"},
+		{"print !0;", "false\n"},
+		{"print 1 < 2;", "true\n"},
+		{"print 2 < 1;", "false\n"},
+		{"print 1 <= 1;", "true\n"},
+		{"print 2 <= 1;", "false\n"},
+		{"print 2 > 1;", "true\n"},
+		{"print 1 > 2;", "false\n"},
+		{"print 1 >= 1;", "true\n"},
+		{"print 1 >= 2;", "false\n"},
+		{"print 1 == 1;", "true\n"},
+		{"print 1 == 2;", "false\n"},
+		{"print 1 != 2;", "true\n"},
+		{"print 1 != 1;", "false\n"},
+		{`print "a" == "a";`, "true\n"},
+		{`print "a" == "b";`, "false\n"},
+		{"print nil == nil;", "true\n"},
+		{"print nil == false;", "false\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.source, func(t *testing.T) {
+			if got := mustRunProgram(t, tt.source); got != tt.expected {
+				t.Errorf("RunProgram(%q) = %q, esperado %q", tt.source, got, tt.expected)
+			}
+		})
+	}
+
+	t.Run("error de tipos en comparacion", func(t *testing.T) {
+		_, err := runProgram(t, `print 1 < "dos";`)
+		if err == nil {
+			t.Fatal("se esperaba error de tipos")
+		}
+		expected := `[línea 1] Error en tiempo de ejecución en '<': los operandos de '<' deben ser números, se obtuvo: 1 y dos`
+		if err.Error() != expected {
+			t.Errorf("error = %q, esperado %q", err.Error(), expected)
+		}
+	})
+}
+
+func TestVMIf(t *testing.T) {
+	tests := []struct {
+		name     string
+		source   string
+		expected string
+	}{
+		{"if verdadero", "if (true) print 1;", "1\n"},
+		{"if falso", "if (false) print 1;", ""},
+		{"if else rama then", "if (1 < 2) print 1; else print 2;", "1\n"},
+		{"if else rama else", "if (1 > 2) print 1; else print 2;", "2\n"},
+		{
+			"if con bloques y variables locales",
+			"if (10 > 5) { var a = 1; print a; } else { var a = 2; print a; }",
+			"1\n",
+		},
+		{
+			"if anidado",
+			`if (true) if (false) print "no"; else print "si";`,
+			"si\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mustRunProgram(t, tt.source); got != tt.expected {
+				t.Errorf("RunProgram(%q) = %q, esperado %q", tt.source, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestVMLogicosCortocircuito(t *testing.T) {
+	tests := []struct {
+		name     string
+		source   string
+		expected string
+	}{
+		{"and con cortocircuito no evalua divisor cero", "print false and (1 / 0);", "false\n"},
+		{"or con cortocircuito no evalua divisor cero", "print true or (1 / 0);", "true\n"},
+		{"and devuelve primer operando falso", "print nil and 1;", "nil\n"},
+		{"and devuelve segundo operando si el primero es verdadero", "print 1 and 2;", "2\n"},
+		{"or devuelve primer operando verdadero", `print "hola" or "chau";`, "hola\n"},
+		{"or devuelve segundo operando si el primero es falso", `print nil or "defecto";`, "defecto\n"},
+		{"and encadenado", "print 1 and 2 and 3;", "3\n"},
+		{"or encadenado", "print false or nil or 42;", "42\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mustRunProgram(t, tt.source); got != tt.expected {
+				t.Errorf("RunProgram(%q) = %q, esperado %q", tt.source, got, tt.expected)
+			}
+		})
+	}
+}
