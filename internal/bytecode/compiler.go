@@ -11,6 +11,10 @@ import (
 // operando de OpConstant es un único byte.
 const maxConstants = 256
 
+// maxLocals es la cantidad de variables locales que entran en un chunk: los
+// operandos de OpGetLocal y OpSetLocal son de un único byte.
+const maxLocals = 256
+
 // CompileError es un error detectado al generar bytecode: un límite del
 // formato de las instrucciones, o una construcción del lenguaje que el
 // compilador todavía no sabe traducir.
@@ -33,6 +37,14 @@ var binaryOps = map[token.TokenType]OpCode{
 	token.PERCENT: OpModulo,
 }
 
+// local representa una variable local conocida en tiempo de compilación.
+// Su posición dentro de c.locals coincide exactamente con su índice de slot
+// en la pila de la VM.
+type local struct {
+	name  string
+	depth int
+}
+
 // compiler recorre el AST y va escribiendo el bytecode en su chunk.
 type compiler struct {
 	chunk *Chunk
@@ -40,6 +52,10 @@ type compiler struct {
 	line int
 	// globals deduplica los nombres de las variables globales en Constants.
 	globals map[string]int
+	// locals lleva la cuenta de las variables locales activas en la pila.
+	locals []local
+	// scopeDepth es la profundidad de anidamiento de bloques actual (0 = global).
+	scopeDepth int
 }
 
 // Compile traduce una expresión a un Chunk nuevo, terminado en OpReturn.
@@ -100,6 +116,18 @@ func (c *compiler) statement(stmt ast.Stmt) error {
 				return err
 			}
 		}
+
+		if c.scopeDepth > 0 {
+			if len(c.locals) >= maxLocals {
+				return &CompileError{
+					Line:    s.Name.Line,
+					Message: fmt.Sprintf("demasiadas variables locales en un mismo bloque (el máximo es %d).", maxLocals),
+				}
+			}
+			c.locals = append(c.locals, local{name: s.Name.Lexeme, depth: c.scopeDepth})
+			return nil
+		}
+
 		nameIdx, err := c.nameConstant(s.Name.Lexeme, s.Name.Line)
 		if err != nil {
 			return err
@@ -109,7 +137,14 @@ func (c *compiler) statement(stmt ast.Stmt) error {
 		return nil
 
 	case *ast.Block:
-		return unsupported(stmtLine(s), "los bloques")
+		c.beginScope()
+		for _, nested := range s.Statements {
+			if err := c.statement(nested); err != nil {
+				return err
+			}
+		}
+		c.endScope()
+		return nil
 
 	case *ast.IfStmt:
 		return unsupported(stmtLine(s), "la sentencia 'if'")
@@ -220,6 +255,11 @@ func (c *compiler) expression(expr ast.Expr) error {
 		return unsupported(e.Operator.Line, fmt.Sprintf("el operador '%s'", e.Operator.Lexeme))
 
 	case *ast.Variable:
+		if slot := c.resolveLocal(e.Name.Lexeme); slot != -1 {
+			c.emit(OpGetLocal, e.Name.Line)
+			c.chunk.Write(byte(slot), e.Name.Line)
+			return nil
+		}
 		nameIdx, err := c.nameConstant(e.Name.Lexeme, e.Name.Line)
 		if err != nil {
 			return err
@@ -231,6 +271,11 @@ func (c *compiler) expression(expr ast.Expr) error {
 	case *ast.Assign:
 		if err := c.expression(e.Value); err != nil {
 			return err
+		}
+		if slot := c.resolveLocal(e.Name.Lexeme); slot != -1 {
+			c.emit(OpSetLocal, e.Name.Line)
+			c.chunk.Write(byte(slot), e.Name.Line)
+			return nil
 		}
 		nameIdx, err := c.nameConstant(e.Name.Lexeme, e.Name.Line)
 		if err != nil {
@@ -283,6 +328,35 @@ func (c *compiler) nameConstant(name string, line int) (int, error) {
 func (c *compiler) emit(op OpCode, line int) {
 	c.chunk.WriteOp(op, line)
 	c.line = line
+}
+
+func (c *compiler) beginScope() {
+	c.scopeDepth++
+}
+
+func (c *compiler) endScope() {
+	c.scopeDepth--
+	line := c.line
+	if line == 0 {
+		line = 1
+	}
+	for len(c.locals) > 0 && c.locals[len(c.locals)-1].depth > c.scopeDepth {
+		c.emit(OpPop, line)
+		c.locals = c.locals[:len(c.locals)-1]
+	}
+}
+
+// resolveLocal busca una variable local por nombre recorriendo locals de
+// atrás hacia adelante (desde el scope más interno al más externo). Si la
+// encuentra, devuelve su índice de slot en la pila; si no, devuelve -1 para
+// indicar que debe resolverse como global.
+func (c *compiler) resolveLocal(name string) int {
+	for i := len(c.locals) - 1; i >= 0; i-- {
+		if c.locals[i].name == name {
+			return i
+		}
+	}
+	return -1
 }
 
 // unsupported arma el error de una construcción que el lenguaje tiene pero

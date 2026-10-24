@@ -45,6 +45,9 @@ func instructions(chunk *bytecode.Chunk) string {
 		if op == bytecode.OpConstant || op == bytecode.OpDefineGlobal || op == bytecode.OpGetGlobal || op == bytecode.OpSetGlobal {
 			offset++
 			parts = append(parts, fmt.Sprintf("%s %v", op, chunk.Constants[chunk.Code[offset]]))
+		} else if op == bytecode.OpGetLocal || op == bytecode.OpSetLocal {
+			offset++
+			parts = append(parts, fmt.Sprintf("%s %d", op, chunk.Code[offset]))
 		} else {
 			parts = append(parts, op.String())
 		}
@@ -342,10 +345,10 @@ func TestCompileProgramSentenciasTodaviaNoSoportadas(t *testing.T) {
 		source   string
 		expected string
 	}{
-		{"{ print 1; }", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta los bloques."},
 		{"if (true) print 1;", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta la sentencia 'if'."},
 		{"while (true) print 1;", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el bucle 'while'."},
 		{"fun f() {}", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las funciones."},
+		{"return 1;", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta la sentencia 'return'."},
 	}
 
 	for _, tt := range tests {
@@ -419,5 +422,79 @@ func TestCompileProgramDeduplicaNombresDeGlobales(t *testing.T) {
 	}
 	if countX != 1 {
 		t.Errorf("nombre 'x' aparece %d veces en constantes (esperado 1): %v", countX, chunk.Constants)
+	}
+}
+
+func TestCompileProgramLocales(t *testing.T) {
+	tests := []struct {
+		name     string
+		source   string
+		expected string
+	}{
+		{
+			name:     "declaracion y uso",
+			source:   "{ var a = 1; var b = 2; print a + b; }",
+			expected: "OP_CONSTANT 1, OP_CONSTANT 2, OP_GET_LOCAL 0, OP_GET_LOCAL 1, OP_ADD, OP_PRINT, OP_POP, OP_POP, OP_RETURN",
+		},
+		{
+			name:     "sombreado de global",
+			source:   "var a = \"global\"; { var a = \"local\"; print a; } print a;",
+			expected: "OP_CONSTANT global, OP_DEFINE_GLOBAL a, OP_CONSTANT local, OP_GET_LOCAL 0, OP_PRINT, OP_POP, OP_GET_GLOBAL a, OP_PRINT, OP_RETURN",
+		},
+		{
+			name:     "bloques anidados y sombreado local",
+			source:   "{ var a = 1; { var a = 2; print a; } print a; }",
+			expected: "OP_CONSTANT 1, OP_CONSTANT 2, OP_GET_LOCAL 1, OP_PRINT, OP_POP, OP_GET_LOCAL 0, OP_PRINT, OP_POP, OP_RETURN",
+		},
+		{
+			name:     "asignacion a local",
+			source:   "{ var a = 1; a = 2; print a; }",
+			expected: "OP_CONSTANT 1, OP_CONSTANT 2, OP_SET_LOCAL 0, OP_POP, OP_GET_LOCAL 0, OP_PRINT, OP_POP, OP_RETURN",
+		},
+		{
+			name:     "local sin inicializador",
+			source:   "{ var a; print a; }",
+			expected: "OP_CONSTANT <nil>, OP_GET_LOCAL 0, OP_PRINT, OP_POP, OP_RETURN",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chunk := mustCompileProgram(t, tt.source)
+			if got := instructions(chunk); got != tt.expected {
+				t.Errorf("instrucciones = %q, esperado %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestCompileProgramTopeLocales(t *testing.T) {
+	var sb strings.Builder
+	sb.WriteString("var a = 1;\n{\n")
+	for i := 0; i < 256; i++ {
+		fmt.Fprintf(&sb, "var x%d = a;\n", i)
+	}
+	sb.WriteString("}\n")
+	// Con 256 variables locales compila bien.
+	chunk := mustCompileProgram(t, sb.String())
+	if chunk == nil {
+		t.Fatal("esperaba chunk no nil para 256 locales")
+	}
+
+	// Con 257 variables locales da error de compilación.
+	sb.Reset()
+	sb.WriteString("var a = 1;\n{\n")
+	for i := 0; i < 257; i++ {
+		fmt.Fprintf(&sb, "var x%d = a;\n", i)
+	}
+	sb.WriteString("}\n")
+
+	_, err := compileProgramSource(t, sb.String())
+	if err == nil {
+		t.Fatal("esperaba error al superar 256 variables locales")
+	}
+	expected := "[línea 259] Error de compilación: demasiadas variables locales en un mismo bloque (el máximo es 256)."
+	if err.Error() != expected {
+		t.Errorf("error = %q, esperado %q", err.Error(), expected)
 	}
 }

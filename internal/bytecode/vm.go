@@ -154,6 +154,14 @@ func (vm *VM) Run(chunk *Chunk) (Value, error) {
 			}
 			vm.globals[name] = vm.peek(0)
 
+		case OpGetLocal:
+			slot := int(vm.readByte())
+			vm.push(vm.stack[slot])
+
+		case OpSetLocal:
+			slot := int(vm.readByte())
+			vm.stack[slot] = vm.peek(0)
+
 		case OpReturn:
 			if len(vm.stack) == 0 {
 				return nil, nil

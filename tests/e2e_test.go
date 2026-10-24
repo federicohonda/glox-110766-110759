@@ -474,6 +474,8 @@ func TestDisassembleCoincideConElTreeWalk(t *testing.T) {
 		`print 1 + "a";`,
 		`print -"a";`,
 		`print "a" * (1 / 0);`,
+		"var a = 1; { var a = 2; print a; } print a;",
+		"{ var x = 10; x = x + 5; print x; }",
 	}
 
 	for _, source := range sources {

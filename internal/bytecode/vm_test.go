@@ -559,3 +559,95 @@ func TestVMErrorLineaEnInstruccionConOperando(t *testing.T) {
 		t.Errorf("error = %q, esperado %q", err.Error(), expected)
 	}
 }
+
+func TestVMLocales(t *testing.T) {
+	t.Run("sombreado fase 3", func(t *testing.T) {
+		source := `
+var a = "global a";
+var b = "global b";
+var c = "global c";
+{
+  var a = "outer a";
+  var b = "outer b";
+  {
+    var a = "inner a";
+    print a;
+    print b;
+    print c;
+  }
+  print a;
+  print b;
+  print c;
+}
+print a;
+print b;
+print c;
+`
+		expected := "inner a\nouter b\nglobal c\nouter a\nouter b\nglobal c\nglobal a\nglobal b\nglobal c\n"
+		got := mustRunProgram(t, source)
+		if got != expected {
+			t.Errorf("salida = %q, esperado %q", got, expected)
+		}
+	})
+
+	t.Run("asignacion y scopes anidados", func(t *testing.T) {
+		source := `
+var x = 10;
+{
+  var x = 20;
+  x = x + 5;
+  print x;
+}
+print x;
+`
+		expected := "25\n10\n"
+		got := mustRunProgram(t, source)
+		if got != expected {
+			t.Errorf("salida = %q, esperado %q", got, expected)
+		}
+	})
+
+	t.Run("scopes hermanos", func(t *testing.T) {
+		source := `
+var a = "global";
+{
+  var b = "local1";
+  print b;
+}
+{
+  var c = "local2";
+  print c;
+  print a;
+}
+`
+		expected := "local1\nlocal2\nglobal\n"
+		got := mustRunProgram(t, source)
+		if got != expected {
+			t.Errorf("salida = %q, esperado %q", got, expected)
+		}
+	})
+}
+
+// TestVMReutilizacionConLocales verifica que al reutilizar una misma VM entre
+// dos corridas que usan variables locales, la pila se reinicie a cero al comenzar
+// la segunda corrida. Si no se reiniciara, la segunda corrida buscaría las locales
+// en slots desfasados.
+func TestVMReutilizacionConLocales(t *testing.T) {
+	var buf strings.Builder
+	vm := bytecode.NewVM(&buf)
+
+	chunk1 := mustCompileProgram(t, "{ var a = 1; var b = 2; print a + b; }")
+	if _, err := vm.Run(chunk1); err != nil {
+		t.Fatalf("primera corrida falló: %v", err)
+	}
+
+	chunk2 := mustCompileProgram(t, "{ var x = 10; print x; }")
+	if _, err := vm.Run(chunk2); err != nil {
+		t.Fatalf("segunda corrida falló: %v", err)
+	}
+
+	expected := "3\n10\n"
+	if got := buf.String(); got != expected {
+		t.Errorf("salida = %q, esperado %q", got, expected)
+	}
+}

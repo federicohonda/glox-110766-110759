@@ -35,6 +35,11 @@ const (
 	OpGetGlobal
 	OpSetGlobal
 
+	// Variables locales: llevan como operando el índice del slot (un byte) en
+	// la pila.
+	OpGetLocal
+	OpSetLocal
+
 	// OpReturn termina la ejecución del chunk.
 	OpReturn
 )
@@ -52,6 +57,8 @@ var opCodeNames = [...]string{
 	OpDefineGlobal: "OP_DEFINE_GLOBAL",
 	OpGetGlobal:    "OP_GET_GLOBAL",
 	OpSetGlobal:    "OP_SET_GLOBAL",
+	OpGetLocal:     "OP_GET_LOCAL",
+	OpSetLocal:     "OP_SET_LOCAL",
 	OpReturn:       "OP_RETURN",
 }
 

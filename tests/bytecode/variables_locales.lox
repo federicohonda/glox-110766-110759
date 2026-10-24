@@ -1,0 +1,9 @@
+// ops: OP_CONSTANT OP_DEFINE_GLOBAL OP_CONSTANT OP_GET_LOCAL OP_PRINT OP_POP OP_GET_GLOBAL OP_PRINT OP_RETURN
+// expect: 2
+// expect: 1
+var a = 1;
+{
+  var a = 2;
+  print a;
+}
+print a;

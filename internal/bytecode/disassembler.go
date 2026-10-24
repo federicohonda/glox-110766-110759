@@ -45,6 +45,9 @@ func (c *Chunk) DisassembleInstruction(offset int) (string, int) {
 	case OpConstant, OpDefineGlobal, OpGetGlobal, OpSetGlobal:
 		return c.constantInstruction(&sb, op, offset)
 
+	case OpGetLocal, OpSetLocal:
+		return c.byteInstruction(&sb, op, offset)
+
 	case OpAdd, OpSubtract, OpMultiply, OpDivide, OpModulo, OpNegate, OpPop, OpPrint, OpReturn:
 		sb.WriteString(op.String())
 		return sb.String(), offset + 1
@@ -53,6 +56,18 @@ func (c *Chunk) DisassembleInstruction(offset int) (string, int) {
 		fmt.Fprintf(&sb, "opcode desconocido %d", c.Code[offset])
 		return sb.String(), offset + 1
 	}
+}
+
+// byteInstruction formatea una instrucción cuyo operando es un byte directo
+// (por ejemplo, el índice de slot de una variable local en la pila).
+func (c *Chunk) byteInstruction(sb *strings.Builder, op OpCode, offset int) (string, int) {
+	if offset+1 >= len(c.Code) {
+		fmt.Fprintf(sb, "%-16s <falta el operando>", op)
+		return sb.String(), offset + 1
+	}
+	slot := int(c.Code[offset+1])
+	fmt.Fprintf(sb, "%-16s %4d", op, slot)
+	return sb.String(), offset + 2
 }
 
 // constantInstruction formatea una instrucción cuyo operando es un índice de

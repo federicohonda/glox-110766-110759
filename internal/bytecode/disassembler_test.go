@@ -153,6 +153,16 @@ func TestDisassembleChunkMalArmado(t *testing.T) {
 		}
 	})
 
+	t.Run("OpGetLocal sin operando", func(t *testing.T) {
+		var chunk bytecode.Chunk
+		chunk.WriteOp(bytecode.OpGetLocal, 1)
+
+		expected := "== roto ==\n0000    1 OP_GET_LOCAL     <falta el operando>\n"
+		if got := chunk.Disassemble("roto"); got != expected {
+			t.Errorf("Disassemble = %q, esperado %q", got, expected)
+		}
+	})
+
 	t.Run("índice de constante inexistente", func(t *testing.T) {
 		var chunk bytecode.Chunk
 		chunk.WriteOp(bytecode.OpConstant, 1)
@@ -164,4 +174,25 @@ func TestDisassembleChunkMalArmado(t *testing.T) {
 			t.Errorf("Disassemble = %q, esperado %q", got, expected)
 		}
 	})
+}
+
+func TestDisassembleLocales(t *testing.T) {
+	var chunk bytecode.Chunk
+	chunk.WriteOp(bytecode.OpGetLocal, 1)
+	chunk.Write(3, 1)
+	chunk.WriteOp(bytecode.OpSetLocal, 1)
+	chunk.Write(3, 1)
+	chunk.WriteOp(bytecode.OpReturn, 1)
+
+	expected := strings.Join([]string{
+		"== locales ==",
+		"0000    1 OP_GET_LOCAL        3",
+		"0002    | OP_SET_LOCAL        3",
+		"0004    | OP_RETURN",
+		"",
+	}, "\n")
+
+	if got := chunk.Disassemble("locales"); got != expected {
+		t.Errorf("Disassemble = %q, esperado %q", got, expected)
+	}
 }
