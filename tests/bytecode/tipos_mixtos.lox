@@ -1,4 +1,4 @@
 // exit: 70
 // stderr: [línea 4] Error en tiempo de ejecución en '+': los operandos de '+' deben ser dos números o dos cadenas, se obtuvo: 1 y a
 // Sin coerción implícita: un número y un string no se pueden sumar.
-1 + "a"
+print 1 + "a";

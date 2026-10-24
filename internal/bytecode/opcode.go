@@ -23,19 +23,36 @@ const (
 	// OpNegate reemplaza el tope de la pila por su opuesto.
 	OpNegate
 
+	// OpPop descarta el valor del tope de la pila.
+	OpPop
+
+	// OpPrint desapila un valor y lo imprime formateado.
+	OpPrint
+
+	// Variables globales: llevan como operando el índice del nombre (string)
+	// en Chunk.Constants.
+	OpDefineGlobal
+	OpGetGlobal
+	OpSetGlobal
+
 	// OpReturn termina la ejecución del chunk.
 	OpReturn
 )
 
 var opCodeNames = [...]string{
-	OpConstant: "OP_CONSTANT",
-	OpAdd:      "OP_ADD",
-	OpSubtract: "OP_SUBTRACT",
-	OpMultiply: "OP_MULTIPLY",
-	OpDivide:   "OP_DIVIDE",
-	OpModulo:   "OP_MODULO",
-	OpNegate:   "OP_NEGATE",
-	OpReturn:   "OP_RETURN",
+	OpConstant:     "OP_CONSTANT",
+	OpAdd:          "OP_ADD",
+	OpSubtract:     "OP_SUBTRACT",
+	OpMultiply:     "OP_MULTIPLY",
+	OpDivide:       "OP_DIVIDE",
+	OpModulo:       "OP_MODULO",
+	OpNegate:       "OP_NEGATE",
+	OpPop:          "OP_POP",
+	OpPrint:        "OP_PRINT",
+	OpDefineGlobal: "OP_DEFINE_GLOBAL",
+	OpGetGlobal:    "OP_GET_GLOBAL",
+	OpSetGlobal:    "OP_SET_GLOBAL",
+	OpReturn:       "OP_RETURN",
 }
 
 func (op OpCode) String() string {

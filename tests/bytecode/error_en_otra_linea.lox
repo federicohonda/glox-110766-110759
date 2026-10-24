@@ -2,6 +2,6 @@
 // stderr: [línea 6] Error en tiempo de ejecución en '/'
 // El error apunta a la línea del operador que falló, no a la primera ni a la
 // última de la expresión.
-1 +
+print 1 +
 2 /
-0
+0;

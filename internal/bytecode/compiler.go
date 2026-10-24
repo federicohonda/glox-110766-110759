@@ -38,6 +38,8 @@ type compiler struct {
 	chunk *Chunk
 	// line es la línea de la última instrucción emitida.
 	line int
+	// globals deduplica los nombres de las variables globales en Constants.
+	globals map[string]int
 }
 
 // Compile traduce una expresión a un Chunk nuevo, terminado en OpReturn.
@@ -46,12 +48,132 @@ type compiler struct {
 // vuelve a parsear, así que la precedencia y la asociatividad ya vienen
 // resueltas en la forma del árbol. Se corta en el primer error.
 func Compile(expr ast.Expr) (*Chunk, error) {
-	c := &compiler{chunk: &Chunk{}}
+	c := &compiler{chunk: &Chunk{}, globals: make(map[string]int)}
 	if err := c.expression(expr); err != nil {
 		return nil, err
 	}
 	c.emit(OpReturn, c.line)
 	return c.chunk, nil
+}
+
+// CompileProgram traduce una lista de sentencias a un Chunk nuevo, terminado
+// en OpReturn. Se corta en el primer error.
+func CompileProgram(stmts []ast.Stmt) (*Chunk, error) {
+	c := &compiler{chunk: &Chunk{}, globals: make(map[string]int)}
+	for _, stmt := range stmts {
+		if err := c.statement(stmt); err != nil {
+			return nil, err
+		}
+	}
+	line := c.line
+	if line == 0 {
+		line = 1
+	}
+	c.emit(OpReturn, line)
+	return c.chunk, nil
+}
+
+// statement emite el código para una sentencia de Lox.
+func (c *compiler) statement(stmt ast.Stmt) error {
+	switch s := stmt.(type) {
+	case *ast.PrintStmt:
+		if err := c.expression(s.Expression); err != nil {
+			return err
+		}
+		c.emit(OpPrint, c.line)
+		return nil
+
+	case *ast.ExpressionStmt:
+		if err := c.expression(s.Expression); err != nil {
+			return err
+		}
+		c.emit(OpPop, c.line)
+		return nil
+
+	case *ast.VarDecl:
+		if s.Initializer != nil {
+			if err := c.expression(s.Initializer); err != nil {
+				return err
+			}
+		} else {
+			if err := c.constant(nil, s.Name.Line); err != nil {
+				return err
+			}
+		}
+		nameIdx, err := c.nameConstant(s.Name.Lexeme, s.Name.Line)
+		if err != nil {
+			return err
+		}
+		c.emit(OpDefineGlobal, s.Name.Line)
+		c.chunk.Write(byte(nameIdx), s.Name.Line)
+		return nil
+
+	case *ast.Block:
+		return unsupported(stmtLine(s), "los bloques")
+
+	case *ast.IfStmt:
+		return unsupported(stmtLine(s), "la sentencia 'if'")
+
+	case *ast.WhileStmt:
+		return unsupported(stmtLine(s), "el bucle 'while'")
+
+	case *ast.FunDecl:
+		return unsupported(s.Name.Line, "las funciones")
+
+	case *ast.ReturnStmt:
+		return unsupported(s.Keyword.Line, "la sentencia 'return'")
+
+	default:
+		return fmt.Errorf("tipo de sentencia no soportado por el compilador: %T", stmt)
+	}
+}
+
+// stmtLine extrae la línea del fuente de una sentencia para reportar errores.
+func stmtLine(stmt ast.Stmt) int {
+	switch s := stmt.(type) {
+	case *ast.PrintStmt:
+		return exprLine(s.Expression)
+	case *ast.ExpressionStmt:
+		return exprLine(s.Expression)
+	case *ast.VarDecl:
+		return s.Name.Line
+	case *ast.IfStmt:
+		return exprLine(s.Condition)
+	case *ast.WhileStmt:
+		return exprLine(s.Condition)
+	case *ast.Block:
+		if len(s.Statements) > 0 {
+			return stmtLine(s.Statements[0])
+		}
+	case *ast.FunDecl:
+		return s.Name.Line
+	case *ast.ReturnStmt:
+		return s.Keyword.Line
+	}
+	return 1
+}
+
+// exprLine extrae la línea del fuente de una expresión para reportar errores.
+func exprLine(expr ast.Expr) int {
+	switch e := expr.(type) {
+	case *ast.Literal:
+		return e.Line
+	case *ast.Grouping:
+		return exprLine(e.Expression)
+	case *ast.Unary:
+		return e.Operator.Line
+	case *ast.Binary:
+		return e.Operator.Line
+	case *ast.Logical:
+		return e.Operator.Line
+	case *ast.Variable:
+		return e.Name.Line
+	case *ast.Assign:
+		return e.Name.Line
+	case *ast.Call:
+		return e.Paren.Line
+	}
+	return 1
 }
 
 // expression emite el código que deja el valor de la expresión en el tope de
@@ -98,10 +220,25 @@ func (c *compiler) expression(expr ast.Expr) error {
 		return unsupported(e.Operator.Line, fmt.Sprintf("el operador '%s'", e.Operator.Lexeme))
 
 	case *ast.Variable:
-		return unsupported(e.Name.Line, "las variables")
+		nameIdx, err := c.nameConstant(e.Name.Lexeme, e.Name.Line)
+		if err != nil {
+			return err
+		}
+		c.emit(OpGetGlobal, e.Name.Line)
+		c.chunk.Write(byte(nameIdx), e.Name.Line)
+		return nil
 
 	case *ast.Assign:
-		return unsupported(e.Name.Line, "la asignación")
+		if err := c.expression(e.Value); err != nil {
+			return err
+		}
+		nameIdx, err := c.nameConstant(e.Name.Lexeme, e.Name.Line)
+		if err != nil {
+			return err
+		}
+		c.emit(OpSetGlobal, e.Name.Line)
+		c.chunk.Write(byte(nameIdx), e.Name.Line)
+		return nil
 
 	case *ast.Call:
 		return unsupported(e.Paren.Line, "las llamadas")
@@ -124,6 +261,23 @@ func (c *compiler) constant(value Value, line int) error {
 	c.emit(OpConstant, line)
 	c.chunk.Write(byte(index), line)
 	return nil
+}
+
+// nameConstant busca el nombre en la tabla de constantes o lo agrega si no
+// está, deduplicando los nombres de las variables globales en el chunk.
+func (c *compiler) nameConstant(name string, line int) (int, error) {
+	if idx, ok := c.globals[name]; ok {
+		return idx, nil
+	}
+	if len(c.chunk.Constants) >= maxConstants {
+		return 0, &CompileError{
+			Line:    line,
+			Message: fmt.Sprintf("demasiadas constantes en un mismo chunk (el máximo es %d).", maxConstants),
+		}
+	}
+	idx := c.chunk.AddConstant(name)
+	c.globals[name] = idx
+	return idx, nil
 }
 
 func (c *compiler) emit(op OpCode, line int) {

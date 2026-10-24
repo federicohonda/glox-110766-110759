@@ -1,0 +1,3 @@
+// exit: 70
+// stderr: [línea 3] Error en tiempo de ejecución en 'x': variable no definida 'x'.
+print x + 1;

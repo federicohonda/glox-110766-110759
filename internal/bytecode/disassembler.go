@@ -42,10 +42,10 @@ func (c *Chunk) DisassembleInstruction(offset int) (string, int) {
 	}
 
 	switch op := OpCode(c.Code[offset]); op {
-	case OpConstant:
+	case OpConstant, OpDefineGlobal, OpGetGlobal, OpSetGlobal:
 		return c.constantInstruction(&sb, op, offset)
 
-	case OpAdd, OpSubtract, OpMultiply, OpDivide, OpModulo, OpNegate, OpReturn:
+	case OpAdd, OpSubtract, OpMultiply, OpDivide, OpModulo, OpNegate, OpPop, OpPrint, OpReturn:
 		sb.WriteString(op.String())
 		return sb.String(), offset + 1
 

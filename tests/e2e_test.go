@@ -277,11 +277,11 @@ func TestModoParsing(t *testing.T) {
 	}
 }
 
-// --disassemble compila una expresión suelta, muestra el bytecode y la
-// ejecuta en la VM.
+// --disassemble compila un programa, muestra el bytecode y lo ejecuta en la
+// VM.
 func TestModoDisassemble(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "expr.lox")
-	if err := os.WriteFile(path, []byte("2 + 3 * 4\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("print 2 + 3 * 4;\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -296,7 +296,8 @@ func TestModoDisassemble(t *testing.T) {
 		"0004    | OP_CONSTANT         2 '4'",
 		"0006    | OP_MULTIPLY",
 		"0007    | OP_ADD",
-		"0008    | OP_RETURN",
+		"0008    | OP_PRINT",
+		"0009    | OP_RETURN",
 		"== RUNTIME ==",
 		"14",
 		"",
@@ -376,12 +377,12 @@ func TestBytecodeScripts(t *testing.T) {
 	}
 }
 
-// En el REPL, --disassemble trata cada línea como una expresión aparte: un
+// En el REPL, --disassemble trata cada línea como una entrada aparte: un
 // error en una no corta la sesión ni afecta a las que siguen, y una línea
 // vacía no hace nada.
 func TestDisassembleREPL(t *testing.T) {
 	cmd := exec.Command(gloxBin, "--disassemble")
-	cmd.Stdin = strings.NewReader("1 + 2\n\n1 / 0\n1 +\n1 < 2\n3 * 3\n")
+	cmd.Stdin = strings.NewReader("var a = 1;\nprint a + 2;\n\n1 / 0;\n1 +;\n1 < 2;\nprint 3 * 3;\n")
 	var out, errOut bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errOut
@@ -393,24 +394,32 @@ func TestDisassembleREPL(t *testing.T) {
 	want := strings.Join([]string{
 		"== COMPILETIME ==",
 		"0000    1 OP_CONSTANT         0 '1'",
+		"0002    | OP_DEFINE_GLOBAL    1 'a'",
+		"0004    | OP_RETURN",
+		"== RUNTIME ==",
+		"== COMPILETIME ==",
+		"0000    1 OP_GET_GLOBAL       0 'a'",
 		"0002    | OP_CONSTANT         1 '2'",
 		"0004    | OP_ADD",
-		"0005    | OP_RETURN",
+		"0005    | OP_PRINT",
+		"0006    | OP_RETURN",
 		"== RUNTIME ==",
 		"3",
-		// 1 / 0: se compila bien y falla recién al ejecutar.
+		// 1 / 0;: se compila bien y falla recién al ejecutar.
 		"== COMPILETIME ==",
 		"0000    1 OP_CONSTANT         0 '1'",
 		"0002    | OP_CONSTANT         1 '0'",
 		"0004    | OP_DIVIDE",
-		"0005    | OP_RETURN",
+		"0005    | OP_POP",
+		"0006    | OP_RETURN",
 		"== RUNTIME ==",
-		// `1 +` y `1 < 2` son errores estáticos: no dejan nada en stdout.
+		// `1 +;` y `1 < 2;` son errores estáticos: no dejan nada en stdout.
 		"== COMPILETIME ==",
 		"0000    1 OP_CONSTANT         0 '3'",
 		"0002    | OP_CONSTANT         1 '3'",
 		"0004    | OP_MULTIPLY",
-		"0005    | OP_RETURN",
+		"0005    | OP_PRINT",
+		"0006    | OP_RETURN",
 		"== RUNTIME ==",
 		"9",
 		"",
@@ -421,7 +430,7 @@ func TestDisassembleREPL(t *testing.T) {
 
 	wantErrs := []string{
 		"[línea 1] Error en tiempo de ejecución en '/': división por cero.",
-		"[línea 1] Error de sintaxis al final: se esperaba una expresión.",
+		"[línea 1] Error de sintaxis en ';': se esperaba una expresión.",
 		"[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '<'.",
 	}
 	if got := splitLines(errOut.String()); strings.Join(got, "\n") != strings.Join(wantErrs, "\n") {
@@ -449,38 +458,34 @@ func TestDisassembleEntradaVacia(t *testing.T) {
 	}
 }
 
-// Las mismas expresiones dan lo mismo por los dos caminos del CLI: el
-// tree-walk con `print <expr>;` y la VM con --disassemble. Es la comparación
+// Los mismos programas dan lo mismo por los dos caminos del CLI: el
+// tree-walk y la VM con --disassemble. Es la comparación
 // de los tests unitarios de internal/bytecode, pero sobre el binario real.
 func TestDisassembleCoincideConElTreeWalk(t *testing.T) {
 	sources := []string{
-		"2 + 3 * 4",
-		"(2 + 3) * 4",
-		"-(1.5 + 2.5) / 8",
-		"7 % 3 - 10 / 4",
-		"1 / 3",
-		`"ab" + "cd"`,
-		"1 / 0",
-		"10 % (2 - 2)",
-		`1 + "a"`,
-		`-"a"`,
-		`"a" * (1 / 0)`,
+		"print 2 + 3 * 4;",
+		"print (2 + 3) * 4;",
+		"print -(1.5 + 2.5) / 8;",
+		"print 7 % 3 - 10 / 4;",
+		"print 1 / 3;",
+		`print "ab" + "cd";`,
+		"print 1 / 0;",
+		"print 10 % (2 - 2);",
+		`print 1 + "a";`,
+		`print -"a";`,
+		`print "a" * (1 / 0);`,
 	}
 
 	for _, source := range sources {
 		t.Run(source, func(t *testing.T) {
 			dir := t.TempDir()
-			exprPath := filepath.Join(dir, "expr.lox")
-			stmtPath := filepath.Join(dir, "stmt.lox")
-			if err := os.WriteFile(exprPath, []byte(source), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(stmtPath, []byte("print "+source+";"), 0o644); err != nil {
+			path := filepath.Join(dir, "prog.lox")
+			if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
 				t.Fatal(err)
 			}
 
-			treeWalk := runGlox(t, stmtPath)
-			vm := runGlox(t, "--disassemble", exprPath)
+			treeWalk := runGlox(t, path)
+			vm := runGlox(t, "--disassemble", path)
 
 			if vm.exit != treeWalk.exit {
 				t.Errorf("código de salida: VM %d, tree-walk %d", vm.exit, treeWalk.exit)

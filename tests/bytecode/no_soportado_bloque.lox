@@ -1,0 +1,5 @@
+// exit: 65
+// stderr: [línea 4] Error de compilación: el compilador a bytecode todavía no soporta los bloques.
+{
+  print 1;
+}

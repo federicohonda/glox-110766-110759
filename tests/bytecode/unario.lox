@@ -1,3 +1,3 @@
 // El menos unario liga más fuerte que la resta, y se puede encadenar.
-// ops: OP_CONSTANT OP_NEGATE OP_NEGATE OP_CONSTANT OP_NEGATE OP_SUBTRACT OP_RETURN
--(-(3)) - -2 // expect: 5
+// ops: OP_CONSTANT OP_NEGATE OP_NEGATE OP_CONSTANT OP_NEGATE OP_SUBTRACT OP_PRINT OP_RETURN
+print -(-(3)) - -2; // expect: 5

@@ -42,7 +42,7 @@ func instructions(chunk *bytecode.Chunk) string {
 	var parts []string
 	for offset := 0; offset < len(chunk.Code); offset++ {
 		op := bytecode.OpCode(chunk.Code[offset])
-		if op == bytecode.OpConstant {
+		if op == bytecode.OpConstant || op == bytecode.OpDefineGlobal || op == bytecode.OpGetGlobal || op == bytecode.OpSetGlobal {
 			offset++
 			parts = append(parts, fmt.Sprintf("%s %v", op, chunk.Constants[chunk.Code[offset]]))
 		} else {
@@ -202,11 +202,7 @@ func TestCompileConstruccionesTodaviaNoSoportadas(t *testing.T) {
 		{"1 < 2", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '<'."},
 		{"1 == 1", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '=='."},
 		{"true and false", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador 'and'."},
-		{"x", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las variables."},
-		{"x = 1", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta la asignación."},
 		{"f(1)", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las llamadas."},
-		// El error puede estar en cualquier profundidad del árbol.
-		{"1 + 2 *\n(3 - x)", "[línea 2] Error de compilación: el compilador a bytecode todavía no soporta las variables."},
 		{"-(1 < 2)", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '<'."},
 		{"(1 + 2) == 3", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '=='."},
 		{"f(1) + 2", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las llamadas."},
@@ -219,7 +215,7 @@ func TestCompileConstruccionesTodaviaNoSoportadas(t *testing.T) {
 		{"!!true", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '!'."},
 		// Se corta en el primer error: de los dos problemas, se reporta el de
 		// la línea 1.
-		{"x +\ny()", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las variables."},
+		{"f(1) +\ny()", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las llamadas."},
 	}
 
 	for _, tt := range tests {
@@ -338,5 +334,90 @@ func TestCompileSinExpresion(t *testing.T) {
 	}
 	if err == nil {
 		t.Fatal("Compile(nil) no devolvió error")
+	}
+}
+
+func TestCompileProgramSentenciasTodaviaNoSoportadas(t *testing.T) {
+	tests := []struct {
+		source   string
+		expected string
+	}{
+		{"{ print 1; }", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta los bloques."},
+		{"if (true) print 1;", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta la sentencia 'if'."},
+		{"while (true) print 1;", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el bucle 'while'."},
+		{"fun f() {}", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las funciones."},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.source, func(t *testing.T) {
+			chunk, err := compileProgramSource(t, tt.source)
+			if chunk != nil {
+				t.Error("se esperaba un chunk nil junto con el error")
+			}
+			if err == nil {
+				t.Fatalf("CompileProgram(%q) no devolvió error", tt.source)
+			}
+			if err.Error() != tt.expected {
+				t.Errorf("mensaje = %q, esperado %q", err.Error(), tt.expected)
+			}
+		})
+	}
+}
+
+func compileProgramSource(t *testing.T, source string) (*bytecode.Chunk, error) {
+	t.Helper()
+	tokens, errs := scanner.New(source).Scan()
+	if len(errs) > 0 {
+		t.Fatalf("error léxico inesperado al escanear %q: %v", source, errs)
+	}
+	stmts, parseErrs := parser.New(tokens).Parse()
+	if len(parseErrs) > 0 {
+		t.Fatalf("error sintáctico inesperado al parsear %q: %v", source, parseErrs)
+	}
+	return bytecode.CompileProgram(stmts)
+}
+
+func mustCompileProgram(t *testing.T, source string) *bytecode.Chunk {
+	t.Helper()
+	chunk, err := compileProgramSource(t, source)
+	if err != nil {
+		t.Fatalf("CompileProgram(%q) falló con error: %v", source, err)
+	}
+	return chunk
+}
+
+func TestCompileProgramGlobalesYPrint(t *testing.T) {
+	chunk := mustCompileProgram(t, "var x = 1; print x;")
+	expected := "OP_CONSTANT 1, OP_DEFINE_GLOBAL x, OP_GET_GLOBAL x, OP_PRINT, OP_RETURN"
+	if got := instructions(chunk); got != expected {
+		t.Errorf("instrucciones = %q, esperado %q", got, expected)
+	}
+
+	chunkNil := mustCompileProgram(t, "var y;")
+	expectedNil := "OP_CONSTANT <nil>, OP_DEFINE_GLOBAL y, OP_RETURN"
+	if got := instructions(chunkNil); got != expectedNil {
+		t.Errorf("instrucciones = %q, esperado %q", got, expectedNil)
+	}
+}
+
+func TestCompileProgramAsignacionComoExpresion(t *testing.T) {
+	chunk := mustCompileProgram(t, "var a; var b; a = b = 3;")
+	expected := "OP_CONSTANT <nil>, OP_DEFINE_GLOBAL a, OP_CONSTANT <nil>, OP_DEFINE_GLOBAL b, OP_CONSTANT 3, OP_SET_GLOBAL b, OP_SET_GLOBAL a, OP_POP, OP_RETURN"
+	if got := instructions(chunk); got != expected {
+		t.Errorf("instrucciones = %q, esperado %q", got, expected)
+	}
+}
+
+func TestCompileProgramDeduplicaNombresDeGlobales(t *testing.T) {
+	chunk := mustCompileProgram(t, "var x = 1; x = x + 1; print x;")
+	// "x" debe aparecer solo una vez en Constants.
+	countX := 0
+	for _, c := range chunk.Constants {
+		if c == "x" {
+			countX++
+		}
+	}
+	if countX != 1 {
+		t.Errorf("nombre 'x' aparece %d veces en constantes (esperado 1): %v", countX, chunk.Constants)
 	}
 }

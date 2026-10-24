@@ -454,3 +454,108 @@ func TestVMLaPilaCreceMasAllaDeLaCapacidadInicial(t *testing.T) {
 		t.Errorf("Run = %v, esperado %d", got, depth)
 	}
 }
+
+func runProgram(t *testing.T, source string) (string, error) {
+	t.Helper()
+	var buf strings.Builder
+	vm := bytecode.NewVM(&buf)
+	chunk := mustCompileProgram(t, source)
+	_, err := vm.Run(chunk)
+	return buf.String(), err
+}
+
+func mustRunProgram(t *testing.T, source string) string {
+	t.Helper()
+	out, err := runProgram(t, source)
+	if err != nil {
+		t.Fatalf("RunProgram(%q) falló con error: %v", source, err)
+	}
+	return out
+}
+
+func TestVMGlobalesYPrint(t *testing.T) {
+	tests := []struct {
+		source   string
+		expected string
+	}{
+		{"print 1;", "1\n"},
+		{"var x = 1; print x;", "1\n"},
+		{"var x = \"hola\"; print x; x = \"mundo\"; print x;", "hola\nmundo\n"},
+		{"var x; print x;", "nil\n"},
+		{"var a = 1; var b = 2; print a + b;", "3\n"},
+		{"var a; var b; print a = b = 3; print a; print b;", "3\n3\n3\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.source, func(t *testing.T) {
+			if got := mustRunProgram(t, tt.source); got != tt.expected {
+				t.Errorf("RunProgram(%q) = %q, esperado %q", tt.source, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestVMGlobalNoDefinida(t *testing.T) {
+	t.Run("lectura", func(t *testing.T) {
+		_, err := runProgram(t, "print x;")
+		if err == nil {
+			t.Fatal("se esperaba error de variable no definida")
+		}
+		expected := "[línea 1] Error en tiempo de ejecución en 'x': variable no definida 'x'."
+		if err.Error() != expected {
+			t.Errorf("error = %q, esperado %q", err.Error(), expected)
+		}
+	})
+
+	t.Run("asignación", func(t *testing.T) {
+		_, err := runProgram(t, "x = 5;")
+		if err == nil {
+			t.Fatal("se esperaba error de variable no definida")
+		}
+		expected := "[línea 1] Error en tiempo de ejecución en 'x': variable no definida 'x'."
+		if err.Error() != expected {
+			t.Errorf("error = %q, esperado %q", err.Error(), expected)
+		}
+	})
+}
+
+func TestVMGlobalSobreviveEntreCorridas(t *testing.T) {
+	var buf strings.Builder
+	vm := bytecode.NewVM(&buf)
+
+	chunk1 := mustCompileProgram(t, "var a = 10;")
+	if _, err := vm.Run(chunk1); err != nil {
+		t.Fatalf("primera corrida falló: %v", err)
+	}
+
+	chunk2 := mustCompileProgram(t, "print a + 5;")
+	if _, err := vm.Run(chunk2); err != nil {
+		t.Fatalf("segunda corrida falló: %v", err)
+	}
+
+	if got := buf.String(); got != "15\n" {
+		t.Errorf("salida = %q, esperado %q", got, "15\n")
+	}
+}
+
+func TestVMRedeclaracionGlobal(t *testing.T) {
+	out := mustRunProgram(t, "var a = 1; var a = 2; print a;")
+	if out != "2\n" {
+		t.Errorf("salida = %q, esperado %q", out, "2\n")
+	}
+}
+
+// TestVMErrorLineaEnInstruccionConOperando verifica que un error en una
+// instrucción con operando (OpGetGlobal) reporte la línea exacta del fuente,
+// asegurando que se tome de Lines[offset] y no de ip - 1.
+func TestVMErrorLineaEnInstruccionConOperando(t *testing.T) {
+	source := "\n\n\nprint x;"
+	_, err := runProgram(t, source)
+	if err == nil {
+		t.Fatal("se esperaba error de variable no definida")
+	}
+	expected := "[línea 4] Error en tiempo de ejecución en 'x': variable no definida 'x'."
+	if err.Error() != expected {
+		t.Errorf("error = %q, esperado %q", err.Error(), expected)
+	}
+}
