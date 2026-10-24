@@ -454,3 +454,356 @@ func TestVMLaPilaCreceMasAllaDeLaCapacidadInicial(t *testing.T) {
 		t.Errorf("Run = %v, esperado %d", got, depth)
 	}
 }
+
+func runProgram(t *testing.T, source string) (string, error) {
+	t.Helper()
+	var buf strings.Builder
+	vm := bytecode.NewVM(&buf)
+	chunk := mustCompileProgram(t, source)
+	_, err := vm.Run(chunk)
+	return buf.String(), err
+}
+
+func mustRunProgram(t *testing.T, source string) string {
+	t.Helper()
+	out, err := runProgram(t, source)
+	if err != nil {
+		t.Fatalf("RunProgram(%q) falló con error: %v", source, err)
+	}
+	return out
+}
+
+func TestVMGlobalesYPrint(t *testing.T) {
+	tests := []struct {
+		source   string
+		expected string
+	}{
+		{"print 1;", "1\n"},
+		{"var x = 1; print x;", "1\n"},
+		{"var x = \"hola\"; print x; x = \"mundo\"; print x;", "hola\nmundo\n"},
+		{"var x; print x;", "nil\n"},
+		{"var a = 1; var b = 2; print a + b;", "3\n"},
+		{"var a; var b; print a = b = 3; print a; print b;", "3\n3\n3\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.source, func(t *testing.T) {
+			if got := mustRunProgram(t, tt.source); got != tt.expected {
+				t.Errorf("RunProgram(%q) = %q, esperado %q", tt.source, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestVMGlobalNoDefinida(t *testing.T) {
+	t.Run("lectura", func(t *testing.T) {
+		_, err := runProgram(t, "print x;")
+		if err == nil {
+			t.Fatal("se esperaba error de variable no definida")
+		}
+		expected := "[línea 1] Error en tiempo de ejecución en 'x': variable no definida 'x'."
+		if err.Error() != expected {
+			t.Errorf("error = %q, esperado %q", err.Error(), expected)
+		}
+	})
+
+	t.Run("asignación", func(t *testing.T) {
+		_, err := runProgram(t, "x = 5;")
+		if err == nil {
+			t.Fatal("se esperaba error de variable no definida")
+		}
+		expected := "[línea 1] Error en tiempo de ejecución en 'x': variable no definida 'x'."
+		if err.Error() != expected {
+			t.Errorf("error = %q, esperado %q", err.Error(), expected)
+		}
+	})
+}
+
+func TestVMGlobalSobreviveEntreCorridas(t *testing.T) {
+	var buf strings.Builder
+	vm := bytecode.NewVM(&buf)
+
+	chunk1 := mustCompileProgram(t, "var a = 10;")
+	if _, err := vm.Run(chunk1); err != nil {
+		t.Fatalf("primera corrida falló: %v", err)
+	}
+
+	chunk2 := mustCompileProgram(t, "print a + 5;")
+	if _, err := vm.Run(chunk2); err != nil {
+		t.Fatalf("segunda corrida falló: %v", err)
+	}
+
+	if got := buf.String(); got != "15\n" {
+		t.Errorf("salida = %q, esperado %q", got, "15\n")
+	}
+}
+
+func TestVMRedeclaracionGlobal(t *testing.T) {
+	out := mustRunProgram(t, "var a = 1; var a = 2; print a;")
+	if out != "2\n" {
+		t.Errorf("salida = %q, esperado %q", out, "2\n")
+	}
+}
+
+// TestVMErrorLineaEnInstruccionConOperando verifica que un error en una
+// instrucción con operando (OpGetGlobal) reporte la línea exacta del fuente,
+// asegurando que se tome de Lines[offset] y no de ip - 1.
+func TestVMErrorLineaEnInstruccionConOperando(t *testing.T) {
+	source := "\n\n\nprint x;"
+	_, err := runProgram(t, source)
+	if err == nil {
+		t.Fatal("se esperaba error de variable no definida")
+	}
+	expected := "[línea 4] Error en tiempo de ejecución en 'x': variable no definida 'x'."
+	if err.Error() != expected {
+		t.Errorf("error = %q, esperado %q", err.Error(), expected)
+	}
+}
+
+func TestVMLocales(t *testing.T) {
+	t.Run("sombreado fase 3", func(t *testing.T) {
+		source := `
+var a = "global a";
+var b = "global b";
+var c = "global c";
+{
+  var a = "outer a";
+  var b = "outer b";
+  {
+    var a = "inner a";
+    print a;
+    print b;
+    print c;
+  }
+  print a;
+  print b;
+  print c;
+}
+print a;
+print b;
+print c;
+`
+		expected := "inner a\nouter b\nglobal c\nouter a\nouter b\nglobal c\nglobal a\nglobal b\nglobal c\n"
+		got := mustRunProgram(t, source)
+		if got != expected {
+			t.Errorf("salida = %q, esperado %q", got, expected)
+		}
+	})
+
+	t.Run("asignacion y scopes anidados", func(t *testing.T) {
+		source := `
+var x = 10;
+{
+  var x = 20;
+  x = x + 5;
+  print x;
+}
+print x;
+`
+		expected := "25\n10\n"
+		got := mustRunProgram(t, source)
+		if got != expected {
+			t.Errorf("salida = %q, esperado %q", got, expected)
+		}
+	})
+
+	t.Run("scopes hermanos", func(t *testing.T) {
+		source := `
+var a = "global";
+{
+  var b = "local1";
+  print b;
+}
+{
+  var c = "local2";
+  print c;
+  print a;
+}
+`
+		expected := "local1\nlocal2\nglobal\n"
+		got := mustRunProgram(t, source)
+		if got != expected {
+			t.Errorf("salida = %q, esperado %q", got, expected)
+		}
+	})
+}
+
+// TestVMReutilizacionConLocales verifica que al reutilizar una misma VM entre
+// dos corridas que usan variables locales, la pila se reinicie a cero al comenzar
+// la segunda corrida. Si no se reiniciara, la segunda corrida buscaría las locales
+// en slots desfasados.
+func TestVMReutilizacionConLocales(t *testing.T) {
+	var buf strings.Builder
+	vm := bytecode.NewVM(&buf)
+
+	chunk1 := mustCompileProgram(t, "{ var a = 1; var b = 2; print a + b; }")
+	if _, err := vm.Run(chunk1); err != nil {
+		t.Fatalf("primera corrida falló: %v", err)
+	}
+
+	chunk2 := mustCompileProgram(t, "{ var x = 10; print x; }")
+	if _, err := vm.Run(chunk2); err != nil {
+		t.Fatalf("segunda corrida falló: %v", err)
+	}
+
+	expected := "3\n10\n"
+	if got := buf.String(); got != expected {
+		t.Errorf("salida = %q, esperado %q", got, expected)
+	}
+}
+
+func TestVMComparaciones(t *testing.T) {
+	tests := []struct {
+		source   string
+		expected string
+	}{
+		{"print !true;", "false\n"},
+		{"print !false;", "true\n"},
+		{"print !nil;", "true\n"},
+		{"print !0;", "false\n"},
+		{"print 1 < 2;", "true\n"},
+		{"print 2 < 1;", "false\n"},
+		{"print 1 <= 1;", "true\n"},
+		{"print 2 <= 1;", "false\n"},
+		{"print 2 > 1;", "true\n"},
+		{"print 1 > 2;", "false\n"},
+		{"print 1 >= 1;", "true\n"},
+		{"print 1 >= 2;", "false\n"},
+		{"print 1 == 1;", "true\n"},
+		{"print 1 == 2;", "false\n"},
+		{"print 1 != 2;", "true\n"},
+		{"print 1 != 1;", "false\n"},
+		{`print "a" == "a";`, "true\n"},
+		{`print "a" == "b";`, "false\n"},
+		{"print nil == nil;", "true\n"},
+		{"print nil == false;", "false\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.source, func(t *testing.T) {
+			if got := mustRunProgram(t, tt.source); got != tt.expected {
+				t.Errorf("RunProgram(%q) = %q, esperado %q", tt.source, got, tt.expected)
+			}
+		})
+	}
+
+	t.Run("error de tipos en comparacion", func(t *testing.T) {
+		_, err := runProgram(t, `print 1 < "dos";`)
+		if err == nil {
+			t.Fatal("se esperaba error de tipos")
+		}
+		expected := `[línea 1] Error en tiempo de ejecución en '<': los operandos de '<' deben ser números, se obtuvo: 1 y dos`
+		if err.Error() != expected {
+			t.Errorf("error = %q, esperado %q", err.Error(), expected)
+		}
+	})
+}
+
+func TestVMIf(t *testing.T) {
+	tests := []struct {
+		name     string
+		source   string
+		expected string
+	}{
+		{"if verdadero", "if (true) print 1;", "1\n"},
+		{"if falso", "if (false) print 1;", ""},
+		{"if else rama then", "if (1 < 2) print 1; else print 2;", "1\n"},
+		{"if else rama else", "if (1 > 2) print 1; else print 2;", "2\n"},
+		{
+			"if con bloques y variables locales",
+			"if (10 > 5) { var a = 1; print a; } else { var a = 2; print a; }",
+			"1\n",
+		},
+		{
+			"if anidado",
+			`if (true) if (false) print "no"; else print "si";`,
+			"si\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mustRunProgram(t, tt.source); got != tt.expected {
+				t.Errorf("RunProgram(%q) = %q, esperado %q", tt.source, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestVMLogicosCortocircuito(t *testing.T) {
+	tests := []struct {
+		name     string
+		source   string
+		expected string
+	}{
+		{"and con cortocircuito no evalua divisor cero", "print false and (1 / 0);", "false\n"},
+		{"or con cortocircuito no evalua divisor cero", "print true or (1 / 0);", "true\n"},
+		{"and devuelve primer operando falso", "print nil and 1;", "nil\n"},
+		{"and devuelve segundo operando si el primero es verdadero", "print 1 and 2;", "2\n"},
+		{"or devuelve primer operando verdadero", `print "hola" or "chau";`, "hola\n"},
+		{"or devuelve segundo operando si el primero es falso", `print nil or "defecto";`, "defecto\n"},
+		{"and encadenado", "print 1 and 2 and 3;", "3\n"},
+		{"or encadenado", "print false or nil or 42;", "42\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mustRunProgram(t, tt.source); got != tt.expected {
+				t.Errorf("RunProgram(%q) = %q, esperado %q", tt.source, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestVMWhileYFor(t *testing.T) {
+	tests := []struct {
+		name     string
+		source   string
+		expected string
+	}{
+		{
+			name:     "while cuenta hasta 3",
+			source:   "var i = 0; while (i < 3) { print i; i = i + 1; }",
+			expected: "0\n1\n2\n",
+		},
+		{
+			name:     "while con condicion falsa inicial no ejecuta cuerpo",
+			source:   "while (false) print 1;",
+			expected: "",
+		},
+		{
+			name:     "for clasico",
+			source:   "for (var i = 0; i < 3; i = i + 1) print i;",
+			expected: "0\n1\n2\n",
+		},
+		{
+			name:     "for sin inicializador",
+			source:   "var i = 0; for (; i < 2; i = i + 1) print i;",
+			expected: "0\n1\n",
+		},
+		{
+			name:     "for sin incremento",
+			source:   "for (var i = 0; i < 2;) { print i; i = i + 1; }",
+			expected: "0\n1\n",
+		},
+		{
+			name: "bucles for anidados",
+			source: `
+for (var i = 0; i < 2; i = i + 1) {
+  for (var j = 0; j < 2; j = j + 1) {
+    print i + j;
+  }
+}
+`,
+			expected: "0\n1\n1\n2\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mustRunProgram(t, tt.source); got != tt.expected {
+				t.Errorf("RunProgram(%q) = %q, esperado %q", tt.source, got, tt.expected)
+			}
+		})
+	}
+}

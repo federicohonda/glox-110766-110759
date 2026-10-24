@@ -1,0 +1,7 @@
+// ops: OP_CONSTANT OP_GET_LOCAL OP_CONSTANT OP_LESS OP_JUMP_IF_FALSE OP_POP OP_GET_LOCAL OP_PRINT OP_GET_LOCAL OP_CONSTANT OP_ADD OP_SET_LOCAL OP_POP OP_LOOP OP_POP OP_POP OP_RETURN
+// expect: 0
+// expect: 1
+// expect: 2
+for (var i = 0; i < 3; i = i + 1) {
+  print i;
+}

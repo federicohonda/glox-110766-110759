@@ -1,3 +1,3 @@
 // Asociatividad a izquierda: (100 / 10) / 5, no 100 / (10 / 5).
-// ops: OP_CONSTANT OP_CONSTANT OP_DIVIDE OP_CONSTANT OP_DIVIDE OP_RETURN
-100 / 10 / 5 // expect: 2
+// ops: OP_CONSTANT OP_CONSTANT OP_DIVIDE OP_CONSTANT OP_DIVIDE OP_PRINT OP_RETURN
+print 100 / 10 / 5; // expect: 2

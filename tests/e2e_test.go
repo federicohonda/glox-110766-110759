@@ -277,11 +277,11 @@ func TestModoParsing(t *testing.T) {
 	}
 }
 
-// --disassemble compila una expresión suelta, muestra el bytecode y la
-// ejecuta en la VM.
+// --disassemble compila un programa, muestra el bytecode y lo ejecuta en la
+// VM.
 func TestModoDisassemble(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "expr.lox")
-	if err := os.WriteFile(path, []byte("2 + 3 * 4\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("print 2 + 3 * 4;\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -296,7 +296,8 @@ func TestModoDisassemble(t *testing.T) {
 		"0004    | OP_CONSTANT         2 '4'",
 		"0006    | OP_MULTIPLY",
 		"0007    | OP_ADD",
-		"0008    | OP_RETURN",
+		"0008    | OP_PRINT",
+		"0009    | OP_RETURN",
 		"== RUNTIME ==",
 		"14",
 		"",
@@ -310,24 +311,24 @@ func TestModoDisassemble(t *testing.T) {
 // los nombres de las instrucciones del listado y las líneas del resultado.
 func splitDisassemble(t *testing.T, stdout string) (ops, result []string) {
 	t.Helper()
-	lines := splitLines(stdout)
-	if len(lines) == 0 || lines[0] != "== COMPILETIME ==" {
-		t.Fatalf("la salida no empieza con el listado del bytecode:\n%s", stdout)
+	runtimeMarker := "== RUNTIME ==\n"
+	idx := strings.Index(stdout, runtimeMarker)
+	if idx == -1 {
+		t.Fatalf("la salida no tiene la sección == RUNTIME ==:\n%s", stdout)
 	}
-	for i, line := range lines[1:] {
-		if line == "== RUNTIME ==" {
-			return ops, lines[i+2:]
+	compilePart := stdout[:idx]
+	runtimePart := stdout[idx+len(runtimeMarker):]
+
+	for _, line := range splitLines(compilePart) {
+		if line == "== COMPILETIME ==" {
+			continue
 		}
-		// Cada línea del listado es: offset, línea del fuente (o '|'),
-		// instrucción y, si tiene, su operando.
 		fields := strings.Fields(line)
-		if len(fields) < 3 {
-			t.Fatalf("línea del listado con formato inesperado: %q", line)
+		if len(fields) >= 3 && len(fields[0]) == 4 {
+			ops = append(ops, fields[2])
 		}
-		ops = append(ops, fields[2])
 	}
-	t.Fatalf("la salida no tiene la sección == RUNTIME ==:\n%s", stdout)
-	return nil, nil
+	return ops, splitLines(runtimePart)
 }
 
 func TestBytecodeScripts(t *testing.T) {
@@ -376,12 +377,12 @@ func TestBytecodeScripts(t *testing.T) {
 	}
 }
 
-// En el REPL, --disassemble trata cada línea como una expresión aparte: un
+// En el REPL, --disassemble trata cada línea como una entrada aparte: un
 // error en una no corta la sesión ni afecta a las que siguen, y una línea
 // vacía no hace nada.
 func TestDisassembleREPL(t *testing.T) {
 	cmd := exec.Command(gloxBin, "--disassemble")
-	cmd.Stdin = strings.NewReader("1 + 2\n\n1 / 0\n1 +\n1 < 2\n3 * 3\n")
+	cmd.Stdin = strings.NewReader("var a = 1;\nprint a + 2;\n\n1 / 0;\n1 +;\nfun f() {}\nprint 3 * 3;\n")
 	var out, errOut bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errOut
@@ -393,24 +394,32 @@ func TestDisassembleREPL(t *testing.T) {
 	want := strings.Join([]string{
 		"== COMPILETIME ==",
 		"0000    1 OP_CONSTANT         0 '1'",
+		"0002    | OP_DEFINE_GLOBAL    1 'a'",
+		"0004    | OP_RETURN",
+		"== RUNTIME ==",
+		"== COMPILETIME ==",
+		"0000    1 OP_GET_GLOBAL       0 'a'",
 		"0002    | OP_CONSTANT         1 '2'",
 		"0004    | OP_ADD",
-		"0005    | OP_RETURN",
+		"0005    | OP_PRINT",
+		"0006    | OP_RETURN",
 		"== RUNTIME ==",
 		"3",
-		// 1 / 0: se compila bien y falla recién al ejecutar.
+		// 1 / 0;: se compila bien y falla recién al ejecutar.
 		"== COMPILETIME ==",
 		"0000    1 OP_CONSTANT         0 '1'",
 		"0002    | OP_CONSTANT         1 '0'",
 		"0004    | OP_DIVIDE",
-		"0005    | OP_RETURN",
+		"0005    | OP_POP",
+		"0006    | OP_RETURN",
 		"== RUNTIME ==",
-		// `1 +` y `1 < 2` son errores estáticos: no dejan nada en stdout.
+		// `1 +;` y `fun f() {}` son errores estáticos: no dejan nada en stdout.
 		"== COMPILETIME ==",
 		"0000    1 OP_CONSTANT         0 '3'",
 		"0002    | OP_CONSTANT         1 '3'",
 		"0004    | OP_MULTIPLY",
-		"0005    | OP_RETURN",
+		"0005    | OP_PRINT",
+		"0006    | OP_RETURN",
 		"== RUNTIME ==",
 		"9",
 		"",
@@ -421,8 +430,8 @@ func TestDisassembleREPL(t *testing.T) {
 
 	wantErrs := []string{
 		"[línea 1] Error en tiempo de ejecución en '/': división por cero.",
-		"[línea 1] Error de sintaxis al final: se esperaba una expresión.",
-		"[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '<'.",
+		"[línea 1] Error de sintaxis en ';': se esperaba una expresión.",
+		"[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las funciones.",
 	}
 	if got := splitLines(errOut.String()); strings.Join(got, "\n") != strings.Join(wantErrs, "\n") {
 		t.Errorf("stderr distinto\n--- obtenido\n%s\n--- esperado\n%s", errOut.String(), strings.Join(wantErrs, "\n"))
@@ -449,38 +458,44 @@ func TestDisassembleEntradaVacia(t *testing.T) {
 	}
 }
 
-// Las mismas expresiones dan lo mismo por los dos caminos del CLI: el
-// tree-walk con `print <expr>;` y la VM con --disassemble. Es la comparación
+// Los mismos programas dan lo mismo por los dos caminos del CLI: el
+// tree-walk y la VM con --disassemble. Es la comparación
 // de los tests unitarios de internal/bytecode, pero sobre el binario real.
 func TestDisassembleCoincideConElTreeWalk(t *testing.T) {
 	sources := []string{
-		"2 + 3 * 4",
-		"(2 + 3) * 4",
-		"-(1.5 + 2.5) / 8",
-		"7 % 3 - 10 / 4",
-		"1 / 3",
-		`"ab" + "cd"`,
-		"1 / 0",
-		"10 % (2 - 2)",
-		`1 + "a"`,
-		`-"a"`,
-		`"a" * (1 / 0)`,
+		"print 2 + 3 * 4;",
+		"print (2 + 3) * 4;",
+		"print -(1.5 + 2.5) / 8;",
+		"print 7 % 3 - 10 / 4;",
+		"print 1 / 3;",
+		`print "ab" + "cd";`,
+		"print 1 / 0;",
+		"print 10 % (2 - 2);",
+		`print 1 + "a";`,
+		`print -"a";`,
+		`print "a" * (1 / 0);`,
+		"var a = 1; { var a = 2; print a; } print a;",
+		"{ var x = 10; x = x + 5; print x; }",
+		`if (1 < 2) print "si"; else print "no";`,
+		"print false and 1;",
+		"print true or 1;",
+		"print 1 < 2;",
+		"print 1 == 1;",
+		"print 1 != 2;",
+		"var sum = 0; var i = 0; while (i < 5) { sum = sum + i; i = i + 1; } print sum;",
+		"var fact = 1; for (var n = 1; n <= 5; n = n + 1) fact = fact * n; print fact;",
 	}
 
 	for _, source := range sources {
 		t.Run(source, func(t *testing.T) {
 			dir := t.TempDir()
-			exprPath := filepath.Join(dir, "expr.lox")
-			stmtPath := filepath.Join(dir, "stmt.lox")
-			if err := os.WriteFile(exprPath, []byte(source), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(stmtPath, []byte("print "+source+";"), 0o644); err != nil {
+			path := filepath.Join(dir, "prog.lox")
+			if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
 				t.Fatal(err)
 			}
 
-			treeWalk := runGlox(t, stmtPath)
-			vm := runGlox(t, "--disassemble", exprPath)
+			treeWalk := runGlox(t, path)
+			vm := runGlox(t, "--disassemble", path)
 
 			if vm.exit != treeWalk.exit {
 				t.Errorf("código de salida: VM %d, tree-walk %d", vm.exit, treeWalk.exit)
@@ -493,6 +508,59 @@ func TestDisassembleCoincideConElTreeWalk(t *testing.T) {
 				t.Errorf("resultado distinto\n--- VM\n%s\n--- tree-walk\n%s", strings.Join(result, "\n"), treeWalk.stdout)
 			}
 		})
+	}
+}
+
+// Los scripts de tests/lox que no usan funciones (Bloque 1 completo: expresiones,
+// variables y control de flujo) deben ejecutar en la VM con --disassemble y
+// producir exactamente las mismas salidas y códigos de error que en el tree-walk.
+func TestScriptsLoxEnLaVM(t *testing.T) {
+	patterns := []string{
+		"lox/control/*.lox",
+		"lox/expresiones/*.lox",
+		"lox/variables/*.lox",
+	}
+	for _, pattern := range patterns {
+		files, err := filepath.Glob(pattern)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range files {
+			src, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Omitir los scripts que usan funciones (fun), pendientes para la Fase 9.
+			if strings.Contains(string(src), "fun ") {
+				continue
+			}
+
+			name := strings.TrimSuffix(strings.TrimPrefix(path, "lox/"), ".lox")
+			t.Run(name, func(t *testing.T) {
+				want := parseExpectations(t, path)
+				got := runGlox(t, "--disassemble", path)
+
+				if got.exit != want.exit {
+					t.Errorf("código de salida = %d, se esperaba %d\nstderr:\n%s", got.exit, want.exit, got.stderr)
+				}
+				for _, fragment := range want.stderr {
+					if !strings.Contains(got.stderr, fragment) {
+						t.Errorf("stderr no contiene %q\nstderr:\n%s", fragment, got.stderr)
+					}
+				}
+				if len(want.stderr) == 0 && got.stderr != "" {
+					t.Errorf("stderr inesperado:\n%s", got.stderr)
+				}
+				if want.exit == 65 {
+					return
+				}
+				_, result := splitDisassemble(t, got.stdout)
+				gotLines := splitLines(strings.Join(result, "\n"))
+				if strings.Join(gotLines, "\n") != strings.Join(want.stdout, "\n") {
+					t.Errorf("stdout distinto\n--- obtenido\n%s\n--- esperado\n%s", strings.Join(gotLines, "\n"), strings.Join(want.stdout, "\n"))
+				}
+			})
+		}
 	}
 }
 

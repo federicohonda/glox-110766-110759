@@ -162,7 +162,7 @@ type exprGenerator struct {
 var (
 	numberLiterals = []string{"0", "1", "2", "3", "7", "10", "100", "0.5", "2.5", "0.125"}
 	otherLiterals  = []string{`"a"`, `""`, `"lox"`, "nil", "true", "false"}
-	binarySymbols  = []string{"+", "-", "*", "/", "%"}
+	binarySymbols  = []string{"+", "-", "*", "/", "%", "<", "<=", ">", ">=", "==", "!=", "and", "or"}
 )
 
 func (g *exprGenerator) pick(options []string) string {
@@ -193,7 +193,11 @@ func (g *exprGenerator) expr(depth, otherChance int) string {
 	case n < 2:
 		// El espacio evita que dos '-' seguidos queden pegados sin querer; al
 		// scanner le da lo mismo, pero se lee mejor en el mensaje de falla.
-		return "-" + g.space() + g.expr(depth-1, otherChance)
+		op := "-"
+		if g.rng.IntN(2) == 0 {
+			op = "!"
+		}
+		return op + g.space() + g.expr(depth-1, otherChance)
 	case n < 4:
 		return "(" + g.expr(depth-1, otherChance) + ")"
 	default:

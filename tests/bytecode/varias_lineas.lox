@@ -1,6 +1,6 @@
 // Una expresión puede ocupar varias líneas y tener comentarios en el medio.
-// ops: OP_CONSTANT OP_CONSTANT OP_CONSTANT OP_MULTIPLY OP_ADD OP_RETURN
-1 +   // el primer operando
+// ops: OP_CONSTANT OP_CONSTANT OP_CONSTANT OP_MULTIPLY OP_ADD OP_PRINT OP_RETURN
+print 1 +   // el primer operando
 2 *   // este producto se calcula antes que la suma de arriba
-3
+3;
 // expect: 7

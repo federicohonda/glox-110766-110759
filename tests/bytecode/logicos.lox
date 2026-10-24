@@ -1,0 +1,5 @@
+// ops: OP_CONSTANT OP_JUMP_IF_FALSE OP_POP OP_CONSTANT OP_PRINT OP_CONSTANT OP_JUMP_IF_TRUE OP_POP OP_CONSTANT OP_PRINT OP_RETURN
+// expect: false
+// expect: true
+print false and 1;
+print true or 1;

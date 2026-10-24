@@ -1,3 +1,3 @@
-// Un literal solo también es una expresión: una constante y nada más.
-// ops: OP_CONSTANT OP_RETURN
-nil // expect: nil
+// Un literal solo también es una sentencia: una constante y print.
+// ops: OP_CONSTANT OP_PRINT OP_RETURN
+print nil; // expect: nil

@@ -1,3 +1,0 @@
-// exit: 65
-// stderr: [línea 3] Error de sintaxis en 'print': se esperaba una expresión.
-print 1 + 2;

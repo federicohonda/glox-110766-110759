@@ -17,7 +17,7 @@ import (
 func main() {
 	scanning := flag.Bool("scanning", false, "Escanear e imprimir la lista de tokens")
 	parsing := flag.Bool("parsing", false, "Parsear e imprimir el AST de la expresión")
-	disassemble := flag.Bool("disassemble", false, "Compilar una expresión a bytecode, imprimirlo y ejecutarlo en la VM")
+	disassemble := flag.Bool("disassemble", false, "Compilar a bytecode, imprimirlo y ejecutarlo en la VM")
 	flag.Parse()
 
 	args := flag.Args()
@@ -41,7 +41,8 @@ func runFile(path string, scanning, parsing, disassemble bool) {
 	}
 
 	interp := interpreter.New()
-	hadError, hadRuntimeError := run(string(bytes), scanning, parsing, disassemble, interp)
+	vm := bytecode.NewVM(os.Stdout)
+	hadError, hadRuntimeError := run(string(bytes), scanning, parsing, disassemble, interp, vm)
 	if hadError {
 		os.Exit(65)
 	}
@@ -53,17 +54,18 @@ func runFile(path string, scanning, parsing, disassemble bool) {
 func runPrompt(scanning, parsing, disassemble bool) {
 	sc := bufio.NewScanner(os.Stdin)
 	interp := interpreter.New()
+	vm := bytecode.NewVM(os.Stdout)
 	for {
 		fmt.Print("> ")
 		if !sc.Scan() {
 			break
 		}
 		line := sc.Text()
-		run(line, scanning, parsing, disassemble, interp)
+		run(line, scanning, parsing, disassemble, interp, vm)
 	}
 }
 
-func run(source string, scanning, parsing, disassemble bool, interp *interpreter.Interpreter) (hadError bool, hadRuntimeError bool) {
+func run(source string, scanning, parsing, disassemble bool, interp *interpreter.Interpreter, vm *bytecode.VM) (hadError bool, hadRuntimeError bool) {
 	sc := scanner.New(source)
 	tokens, errs := sc.Scan()
 
@@ -88,7 +90,7 @@ func run(source string, scanning, parsing, disassemble bool, interp *interpreter
 	}
 
 	if disassemble {
-		return runBytecode(tokens)
+		return runBytecode(tokens, vm)
 	}
 
 	stmts, parseErrs := parser.New(tokens).Parse()
@@ -124,22 +126,30 @@ func run(source string, scanning, parsing, disassemble bool, interp *interpreter
 }
 
 // runBytecode es el pipeline del modo --disassemble: compila a bytecode,
-// muestra el listado del chunk y lo ejecuta en la VM. Por ahora el compilador
-// solo conoce expresiones, así que la entrada tiene que ser una única
-// expresión (sin ';') y no un programa.
-func runBytecode(tokens []token.Token) (hadError bool, hadRuntimeError bool) {
+// muestra el listado del chunk y lo ejecuta en la VM.
+func runBytecode(tokens []token.Token, vm *bytecode.VM) (hadError bool, hadRuntimeError bool) {
 	// Solo el EOF: una entrada vacía no hace nada, igual que un programa vacío.
 	if len(tokens) == 1 {
 		return false, false
 	}
 
-	expr, err := parser.New(tokens).ParseExpression()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	stmts, parseErrs := parser.New(tokens).Parse()
+	if len(parseErrs) > 0 {
+		for _, err := range parseErrs {
+			fmt.Fprintln(os.Stderr, err)
+		}
 		return true, false
 	}
 
-	chunk, err := bytecode.Compile(expr)
+	_, resolveErrs := resolver.Resolve(stmts)
+	if len(resolveErrs) > 0 {
+		for _, err := range resolveErrs {
+			fmt.Fprintln(os.Stderr, err)
+		}
+		return true, false
+	}
+
+	chunk, err := bytecode.CompileProgram(stmts)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return true, false
@@ -147,12 +157,11 @@ func runBytecode(tokens []token.Token) (hadError bool, hadRuntimeError bool) {
 	fmt.Print(chunk.Disassemble("COMPILETIME"))
 
 	fmt.Println("== RUNTIME ==")
-	result, err := bytecode.NewVM().Run(chunk)
+	_, err = vm.Run(chunk)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return false, true
 	}
-	fmt.Println(interpreter.Stringify(result))
 
 	return false, false
 }

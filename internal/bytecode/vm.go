@@ -2,7 +2,9 @@ package bytecode
 
 import (
 	"fmt"
+	"io"
 	"math"
+	"os"
 )
 
 // RuntimeError es un error producido al ejecutar una instrucción. Line sale
@@ -28,13 +30,24 @@ type VM struct {
 	chunk *Chunk
 	// ip (instruction pointer) es el índice en chunk.Code del próximo byte a
 	// leer.
-	ip    int
-	stack []Value
+	ip      int
+	stack   []Value
+	globals map[string]Value
+	out     io.Writer
 }
 
-// NewVM crea una VM con la pila vacía.
-func NewVM() *VM {
-	return &VM{stack: make([]Value, 0, stackInitialCapacity)}
+// NewVM crea una VM con la pila vacía. Si no se indica un writer, la salida
+// de print va a os.Stdout.
+func NewVM(out ...io.Writer) *VM {
+	var w io.Writer = os.Stdout
+	if len(out) > 0 && out[0] != nil {
+		w = out[0]
+	}
+	return &VM{
+		stack:   make([]Value, 0, stackInitialCapacity),
+		globals: make(map[string]Value),
+		out:     w,
+	}
 }
 
 // Run ejecuta el chunk desde su primera instrucción y devuelve el valor que
@@ -116,7 +129,98 @@ func (vm *VM) Run(chunk *Chunk) (Value, error) {
 			}
 			vm.push(-n)
 
+		case OpPop:
+			vm.pop()
+
+		case OpPrint:
+			fmt.Fprintln(vm.out, formatValue(vm.pop()))
+
+		case OpDefineGlobal:
+			name := chunk.Constants[vm.readByte()].(string)
+			vm.globals[name] = vm.pop()
+
+		case OpGetGlobal:
+			name := chunk.Constants[vm.readByte()].(string)
+			val, ok := vm.globals[name]
+			if !ok {
+				return nil, vm.runtimeError(offset, name, "variable no definida '%s'.", name)
+			}
+			vm.push(val)
+
+		case OpSetGlobal:
+			name := chunk.Constants[vm.readByte()].(string)
+			if _, ok := vm.globals[name]; !ok {
+				return nil, vm.runtimeError(offset, name, "variable no definida '%s'.", name)
+			}
+			vm.globals[name] = vm.peek(0)
+
+		case OpGetLocal:
+			slot := int(vm.readByte())
+			vm.push(vm.stack[slot])
+
+		case OpSetLocal:
+			slot := int(vm.readByte())
+			vm.stack[slot] = vm.peek(0)
+
+		case OpNot:
+			vm.push(!isTruthy(vm.pop()))
+
+		case OpEqual:
+			right, left := vm.pop(), vm.pop()
+			vm.push(isEqual(left, right))
+
+		case OpGreater:
+			left, right, err := vm.popNumbers(offset, ">")
+			if err != nil {
+				return nil, err
+			}
+			vm.push(left > right)
+
+		case OpGreaterEqual:
+			left, right, err := vm.popNumbers(offset, ">=")
+			if err != nil {
+				return nil, err
+			}
+			vm.push(left >= right)
+
+		case OpLess:
+			left, right, err := vm.popNumbers(offset, "<")
+			if err != nil {
+				return nil, err
+			}
+			vm.push(left < right)
+
+		case OpLessEqual:
+			left, right, err := vm.popNumbers(offset, "<=")
+			if err != nil {
+				return nil, err
+			}
+			vm.push(left <= right)
+
+		case OpJump:
+			offsetJump := int(vm.readShort())
+			vm.ip += offsetJump
+
+		case OpJumpIfFalse:
+			offsetJump := int(vm.readShort())
+			if !isTruthy(vm.peek(0)) {
+				vm.ip += offsetJump
+			}
+
+		case OpJumpIfTrue:
+			offsetJump := int(vm.readShort())
+			if isTruthy(vm.peek(0)) {
+				vm.ip += offsetJump
+			}
+
+		case OpLoop:
+			offsetJump := int(vm.readShort())
+			vm.ip -= offsetJump
+
 		case OpReturn:
+			if len(vm.stack) == 0 {
+				return nil, nil
+			}
 			return vm.pop(), nil
 
 		default:
@@ -133,6 +237,33 @@ func (vm *VM) readByte() byte {
 	return b
 }
 
+func (vm *VM) readShort() uint16 {
+	high := uint16(vm.chunk.Code[vm.ip])
+	low := uint16(vm.chunk.Code[vm.ip+1])
+	vm.ip += 2
+	return (high << 8) | low
+}
+
+func isTruthy(val Value) bool {
+	if val == nil {
+		return false
+	}
+	if b, ok := val.(bool); ok {
+		return b
+	}
+	return true
+}
+
+func isEqual(a, b Value) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a == b
+}
+
 func (vm *VM) push(value Value) {
 	vm.stack = append(vm.stack, value)
 }
@@ -142,6 +273,12 @@ func (vm *VM) pop() Value {
 	value := vm.stack[top]
 	vm.stack = vm.stack[:top]
 	return value
+}
+
+// peek devuelve el valor que está a `distance` posiciones por debajo del tope
+// de la pila (peek(0) es el tope) sin desapilarlo.
+func (vm *VM) peek(distance int) Value {
+	return vm.stack[len(vm.stack)-1-distance]
 }
 
 // popNumbers desapila los dos operandos de una operación binaria (primero el
