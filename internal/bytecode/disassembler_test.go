@@ -173,6 +173,16 @@ func TestDisassembleChunkMalArmado(t *testing.T) {
 		}
 	})
 
+	t.Run("OpLoop sin operando", func(t *testing.T) {
+		var chunk bytecode.Chunk
+		chunk.WriteOp(bytecode.OpLoop, 1)
+
+		expected := "== roto ==\n0000    1 OP_LOOP          <falta el operando>\n"
+		if got := chunk.Disassemble("roto"); got != expected {
+			t.Errorf("Disassemble = %q, esperado %q", got, expected)
+		}
+	})
+
 	t.Run("índice de constante inexistente", func(t *testing.T) {
 		var chunk bytecode.Chunk
 		chunk.WriteOp(bytecode.OpConstant, 1)
@@ -217,6 +227,9 @@ func TestDisassembleSaltos(t *testing.T) {
 	chunk.Write(0x00, 1)
 	chunk.Write(0x02, 1)
 	chunk.WriteOp(bytecode.OpPop, 1)
+	chunk.WriteOp(bytecode.OpLoop, 1)
+	chunk.Write(0x00, 1)
+	chunk.Write(0x0b, 1)
 	chunk.WriteOp(bytecode.OpReturn, 1)
 
 	expected := strings.Join([]string{
@@ -225,7 +238,8 @@ func TestDisassembleSaltos(t *testing.T) {
 		"0003    | OP_POP",
 		"0004    | OP_JUMP             4 -> 9",
 		"0007    | OP_POP",
-		"0008    | OP_RETURN",
+		"0008    | OP_LOOP             8 -> 0",
+		"0011    | OP_RETURN",
 		"",
 	}, "\n")
 

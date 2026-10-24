@@ -51,6 +51,9 @@ func (c *Chunk) DisassembleInstruction(offset int) (string, int) {
 	case OpJump, OpJumpIfFalse, OpJumpIfTrue:
 		return c.jumpInstruction(&sb, op, offset)
 
+	case OpLoop:
+		return c.loopInstruction(&sb, op, offset)
+
 	case OpAdd, OpSubtract, OpMultiply, OpDivide, OpModulo, OpNegate, OpPop, OpPrint, OpReturn,
 		OpNot, OpEqual, OpGreater, OpGreaterEqual, OpLess, OpLessEqual:
 		sb.WriteString(op.String())
@@ -71,6 +74,19 @@ func (c *Chunk) jumpInstruction(sb *strings.Builder, op OpCode, offset int) (str
 	}
 	jump := int(uint16(c.Code[offset+1])<<8 | uint16(c.Code[offset+2]))
 	target := offset + 3 + jump
+	fmt.Fprintf(sb, "%-16s %4d -> %d", op, offset, target)
+	return sb.String(), offset + 3
+}
+
+// loopInstruction formatea una instrucción de bucle cuyo operando es un offset
+// de 2 bytes hacia atrás.
+func (c *Chunk) loopInstruction(sb *strings.Builder, op OpCode, offset int) (string, int) {
+	if offset+2 >= len(c.Code) {
+		fmt.Fprintf(sb, "%-16s <falta el operando>", op)
+		return sb.String(), len(c.Code)
+	}
+	jump := int(uint16(c.Code[offset+1])<<8 | uint16(c.Code[offset+2]))
+	target := offset + 3 - jump
 	fmt.Fprintf(sb, "%-16s %4d -> %d", op, offset, target)
 	return sb.String(), offset + 3
 }

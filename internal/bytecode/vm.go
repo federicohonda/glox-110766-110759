@@ -213,6 +213,10 @@ func (vm *VM) Run(chunk *Chunk) (Value, error) {
 				vm.ip += offsetJump
 			}
 
+		case OpLoop:
+			offsetJump := int(vm.readShort())
+			vm.ip -= offsetJump
+
 		case OpReturn:
 			if len(vm.stack) == 0 {
 				return nil, nil

@@ -180,7 +180,27 @@ func (c *compiler) statement(stmt ast.Stmt) error {
 		return nil
 
 	case *ast.WhileStmt:
-		return unsupported(stmtLine(s), "el bucle 'while'")
+		loopStart := len(c.chunk.Code)
+		line := exprLine(s.Condition)
+		if err := c.expression(s.Condition); err != nil {
+			return err
+		}
+		exitJump := c.emitJump(OpJumpIfFalse, line)
+		c.emit(OpPop, line)
+
+		if err := c.statement(s.Body); err != nil {
+			return err
+		}
+
+		if err := c.emitLoop(loopStart, line); err != nil {
+			return err
+		}
+
+		if err := c.patchJump(exitJump, line); err != nil {
+			return err
+		}
+		c.emit(OpPop, line)
+		return nil
 
 	case *ast.FunDecl:
 		return unsupported(s.Name.Line, "las funciones")
@@ -438,6 +458,22 @@ func (c *compiler) patchJump(offset int, line int) error {
 	}
 	c.chunk.Code[offset] = byte((jump >> 8) & 0xff)
 	c.chunk.Code[offset+1] = byte(jump & 0xff)
+	return nil
+}
+
+// emitLoop escribe OpLoop seguido de 2 bytes con la distancia hacia atrás
+// hasta loopStart.
+func (c *compiler) emitLoop(loopStart int, line int) error {
+	c.emit(OpLoop, line)
+	jump := len(c.chunk.Code) - loopStart + 2
+	if jump > 65535 {
+		return &CompileError{
+			Line:    line,
+			Message: "cuerpo del bucle demasiado grande (el máximo es 65535 bytes).",
+		}
+	}
+	c.chunk.Write(byte((jump>>8)&0xff), line)
+	c.chunk.Write(byte(jump&0xff), line)
 	return nil
 }
 

@@ -76,7 +76,7 @@ $ ./glox --parsing /tmp/t.lox
 el AST, lo compila a bytecode y lo ejecuta en una máquina virtual de pila.
 Muestra primero el listado del bytecode y después el resultado. El compilador
 soporta sentencias (`print`, expresiones como sentencia, bloques, `if`), variables
-globales y locales (slots en stack) y lógica con saltos (`and`/`or`):
+globales y locales (slots en stack), lógica con saltos (`and`/`or`) y bucles (`while`/`for`):
 
 ```text
 $ ./glox --disassemble
@@ -102,8 +102,8 @@ $ ./glox --disassemble
 0006    | OP_RETURN
 == RUNTIME ==
 [línea 1] Error en tiempo de ejecución en '/': división por cero.
-> print 1 < 2;
-[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el operador '<'.
+> fun f() {}
+[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las funciones.
 ```
 
 Las columnas del listado son: posición del opcode, línea del fuente (`|` si no
@@ -168,7 +168,7 @@ Comparte scanner y parser con el anterior: lo que cambia es qué se hace con el
 
 ```
  [2. Parser]
-       │ ast.Expr           (por ahora, una expresión)
+       │ []ast.Stmt         (sentencias, variables y control de flujo)
        ▼
  [5. Compiler] ──────────► errores de compilación (65)
        │ *bytecode.Chunk    (instrucciones + constantes + líneas)
@@ -185,7 +185,7 @@ Comparte scanner y parser con el anterior: lo que cambia es qué se hace con el
 | `internal/parser` | Parser recursivo descendente: una función por regla de la gramática. Desazucara `for` a `while`. Se recupera de los errores sincronizando hasta la próxima sentencia. |
 | `internal/resolver` | Análisis semántico estático: calcula la distancia de scope de cada variable local y detecta `return` fuera de funciones, lecturas de una variable en su propio inicializador y redeclaraciones locales. |
 | `internal/interpreter` | Evaluación con `type switch`, `Environment` encadenado, funciones con closures. |
-| `internal/bytecode` | Bloque 2, en construcción. `Chunk` (bytecode + tabla de constantes + línea de cada byte), el juego de instrucciones (`OpCode`), un disassembler, el compilador (recorre en postorden el mismo AST que usa el intérprete) y la VM de pila. Cubre expresiones aritméticas, comparaciones, lógica, sentencias print, if/else y variables globales y locales. |
+| `internal/bytecode` | Bloque 2, en construcción. `Chunk` (bytecode + tabla de constantes + línea de cada byte), el juego de instrucciones (`OpCode`), un disassembler, el compilador (recorre en postorden el mismo AST que usa el intérprete) y la VM de pila. Cubre expresiones aritméticas, comparaciones, lógica con cortocircuito, sentencias print, variables globales y locales, bloques, condicional `if`/`else` y bucles `while` y `for`. |
 
 ### Gramática implementada
 

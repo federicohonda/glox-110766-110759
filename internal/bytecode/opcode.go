@@ -53,6 +53,9 @@ const (
 	OpJumpIfFalse
 	OpJumpIfTrue
 
+	// Bucles: lleva como operando un offset de 2 bytes (uint16) hacia atrás.
+	OpLoop
+
 	// OpReturn termina la ejecución del chunk.
 	OpReturn
 )
@@ -81,6 +84,7 @@ var opCodeNames = [...]string{
 	OpJump:         "OP_JUMP",
 	OpJumpIfFalse:  "OP_JUMP_IF_FALSE",
 	OpJumpIfTrue:   "OP_JUMP_IF_TRUE",
+	OpLoop:         "OP_LOOP",
 	OpReturn:       "OP_RETURN",
 }
 

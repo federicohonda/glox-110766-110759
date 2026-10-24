@@ -754,3 +754,56 @@ func TestVMLogicosCortocircuito(t *testing.T) {
 		})
 	}
 }
+
+func TestVMWhileYFor(t *testing.T) {
+	tests := []struct {
+		name     string
+		source   string
+		expected string
+	}{
+		{
+			name:     "while cuenta hasta 3",
+			source:   "var i = 0; while (i < 3) { print i; i = i + 1; }",
+			expected: "0\n1\n2\n",
+		},
+		{
+			name:     "while con condicion falsa inicial no ejecuta cuerpo",
+			source:   "while (false) print 1;",
+			expected: "",
+		},
+		{
+			name:     "for clasico",
+			source:   "for (var i = 0; i < 3; i = i + 1) print i;",
+			expected: "0\n1\n2\n",
+		},
+		{
+			name:     "for sin inicializador",
+			source:   "var i = 0; for (; i < 2; i = i + 1) print i;",
+			expected: "0\n1\n",
+		},
+		{
+			name:     "for sin incremento",
+			source:   "for (var i = 0; i < 2;) { print i; i = i + 1; }",
+			expected: "0\n1\n",
+		},
+		{
+			name: "bucles for anidados",
+			source: `
+for (var i = 0; i < 2; i = i + 1) {
+  for (var j = 0; j < 2; j = j + 1) {
+    print i + j;
+  }
+}
+`,
+			expected: "0\n1\n1\n2\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mustRunProgram(t, tt.source); got != tt.expected {
+				t.Errorf("RunProgram(%q) = %q, esperado %q", tt.source, got, tt.expected)
+			}
+		})
+	}
+}

@@ -53,6 +53,11 @@ func instructions(chunk *bytecode.Chunk) string {
 			target := offset + 3 + jump
 			offset += 2
 			parts = append(parts, fmt.Sprintf("%s %d", op, target))
+		} else if op == bytecode.OpLoop {
+			jump := int(uint16(chunk.Code[offset+1])<<8 | uint16(chunk.Code[offset+2]))
+			target := offset + 3 - jump
+			offset += 2
+			parts = append(parts, fmt.Sprintf("%s %d", op, target))
 		} else {
 			parts = append(parts, op.String())
 		}
@@ -335,7 +340,6 @@ func TestCompileProgramSentenciasTodaviaNoSoportadas(t *testing.T) {
 		source   string
 		expected string
 	}{
-		{"while (true) print 1;", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta el bucle 'while'."},
 		{"fun f() {}", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las funciones."},
 		{"return 1;", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta la sentencia 'return'."},
 	}
@@ -549,6 +553,44 @@ func TestCompileSaltoDemasiadoGrande(t *testing.T) {
 		t.Fatal("esperaba error al superar 65535 bytes de salto")
 	}
 	expected := "[línea 2] Error de compilación: cuerpo del salto demasiado grande (el máximo es 65535 bytes)."
+	if err.Error() != expected {
+		t.Errorf("error = %q, esperado %q", err.Error(), expected)
+	}
+}
+
+func TestCompileWhileYFor(t *testing.T) {
+	t.Run("while simple", func(t *testing.T) {
+		chunk := mustCompileProgram(t, "while (1 < 2) print 1;")
+		expected := "OP_CONSTANT 1, OP_CONSTANT 2, OP_LESS, OP_JUMP_IF_FALSE 15, OP_POP, OP_CONSTANT 1, OP_PRINT, OP_LOOP 0, OP_POP, OP_RETURN"
+		if got := instructions(chunk); got != expected {
+			t.Errorf("instrucciones = %q, esperado %q", got, expected)
+		}
+	})
+
+	t.Run("for desazucarado por el parser", func(t *testing.T) {
+		chunk := mustCompileProgram(t, "for (var i = 0; i < 3; i = i + 1) print i;")
+		// El for se desazucara en Block { VarDecl i, While (i < 3) { Block { print i, ExprStmt i = i + 1 } } }
+		// i es una variable local en slot 0.
+		expected := "OP_CONSTANT 0, OP_GET_LOCAL 0, OP_CONSTANT 3, OP_LESS, OP_JUMP_IF_FALSE 25, OP_POP, OP_GET_LOCAL 0, OP_PRINT, OP_GET_LOCAL 0, OP_CONSTANT 1, OP_ADD, OP_SET_LOCAL 0, OP_POP, OP_LOOP 2, OP_POP, OP_POP, OP_RETURN"
+		if got := instructions(chunk); got != expected {
+			t.Errorf("instrucciones = %q, esperado %q", got, expected)
+		}
+	})
+}
+
+func TestCompileBucleDemasiadoGrande(t *testing.T) {
+	var sb strings.Builder
+	sb.WriteString("var a = 1;\nwhile (true) {\n")
+	for i := 0; i < 8500; i++ {
+		sb.WriteString("a = a + a;\n")
+	}
+	sb.WriteString("}\n")
+
+	_, err := compileProgramSource(t, sb.String())
+	if err == nil {
+		t.Fatal("esperaba error al superar 65535 bytes de loop")
+	}
+	expected := "[línea 2] Error de compilación: cuerpo del bucle demasiado grande (el máximo es 65535 bytes)."
 	if err.Error() != expected {
 		t.Errorf("error = %q, esperado %q", err.Error(), expected)
 	}
