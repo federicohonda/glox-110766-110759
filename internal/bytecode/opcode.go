@@ -3,8 +3,7 @@ package bytecode
 import "fmt"
 
 // OpCode es una instrucción del bytecode. Ocupa un byte dentro de Chunk.Code;
-// las que llevan operando lo guardan en los bytes que siguen (por ahora solo
-// OpConstant, con un operando de un byte).
+// las que llevan operando lo guardan en los bytes que siguen.
 type OpCode byte
 
 const (
@@ -36,9 +35,32 @@ const (
 	OpSetGlobal
 
 	// Variables locales: llevan como operando el índice del slot (un byte) en
-	// la pila.
+	// la pila, relativo al comienzo del frame de la función en curso.
 	OpGetLocal
 	OpSetLocal
+
+	// Variables locales capturadas por una función anidada: el slot guarda
+	// una *Cell en vez del valor. OpBox envuelve en una celda nueva el valor
+	// que está en el slot; OpGetCell y OpSetCell leen y escriben a través de
+	// ella. Operando: el slot.
+	OpBox
+	OpGetCell
+	OpSetCell
+
+	// Variables capturadas vistas desde la función interna. Operando: el
+	// índice en Closure.Captured de la closure en curso.
+	OpGetCaptured
+	OpSetCaptured
+
+	// OpClosure apila una closure nueva. Operandos: el índice de la Function
+	// en Chunk.Constants y, por cada variable que captura, un par de bytes
+	// (1 = un slot del frame actual / 0 = un Captured de la closure actual,
+	// índice).
+	OpClosure
+
+	// OpCall invoca al valor que está debajo de los argumentos. Operando: la
+	// cantidad de argumentos.
+	OpCall
 
 	// Operaciones lógicas y de comparación:
 	OpNot
@@ -56,7 +78,9 @@ const (
 	// Bucles: lleva como operando un offset de 2 bytes (uint16) hacia atrás.
 	OpLoop
 
-	// OpReturn termina la ejecución del chunk.
+	// OpReturn desapila el valor de retorno, descarta el frame de la función
+	// en curso y deja el valor donde estaba el callee. En el chunk del
+	// programa termina la ejecución.
 	OpReturn
 )
 
@@ -75,6 +99,13 @@ var opCodeNames = [...]string{
 	OpSetGlobal:    "OP_SET_GLOBAL",
 	OpGetLocal:     "OP_GET_LOCAL",
 	OpSetLocal:     "OP_SET_LOCAL",
+	OpBox:          "OP_BOX",
+	OpGetCell:      "OP_GET_CELL",
+	OpSetCell:      "OP_SET_CELL",
+	OpGetCaptured:  "OP_GET_CAPTURED",
+	OpSetCaptured:  "OP_SET_CAPTURED",
+	OpClosure:      "OP_CLOSURE",
+	OpCall:         "OP_CALL",
 	OpNot:          "OP_NOT",
 	OpEqual:        "OP_EQUAL",
 	OpGreater:      "OP_GREATER",

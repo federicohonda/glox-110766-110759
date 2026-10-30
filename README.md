@@ -63,7 +63,8 @@ Se sale con `Ctrl+D` (fin de la entrada).
 ```bash
 ./glox --scanning    examples/hello.lox   # lista de tokens: TIPO 'lexema' literal
 ./glox --parsing     examples/hello.lox   # AST en notación prefija, una sentencia por línea
-./glox --disassemble prog.lox             # bytecode de sentencias/programa y su resultado en la VM
+./glox --disassemble prog.lox             # bytecode del programa (y de cada función) y su resultado en la VM
+./glox --tree-walk   prog.lox             # ejecuta con el intérprete tree-walk del Bloque 1
 ```
 
 ```text
@@ -72,11 +73,11 @@ $ ./glox --parsing /tmp/t.lox
 (print (+ 1 (* 2 3)))
 ```
 
-`--disassemble` es la parte visible del Bloque 2: en vez de recorrer
-el AST, lo compila a bytecode y lo ejecuta en una máquina virtual de pila.
-Muestra primero el listado del bytecode y después el resultado. El compilador
-soporta sentencias (`print`, expresiones como sentencia, bloques, `if`), variables
-globales y locales (slots en stack), lógica con saltos (`and`/`or`) y bucles (`while`/`for`):
+Sin flags, `glox` compila el programa a bytecode y lo ejecuta en una máquina
+virtual de pila (Bloque 2). El intérprete tree-walk de la entrega parcial
+sigue disponible con `--tree-walk`, para comparar los dos. `--disassemble`
+muestra además el listado del bytecode antes del resultado; cada función
+compila a su propio chunk y se lista después del programa:
 
 ```text
 $ ./glox --disassemble
@@ -102,8 +103,6 @@ $ ./glox --disassemble
 0006    | OP_RETURN
 == RUNTIME ==
 [línea 1] Error en tiempo de ejecución en '/': división por cero.
-> fun f() {}
-[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las funciones.
 ```
 
 Las columnas del listado son: posición del opcode, línea del fuente (`|` si no
@@ -162,13 +161,13 @@ Código fuente (.lox o REPL)
  [4. Interpreter] ───────► errores de runtime (70)
 ```
 
-Con `--disassemble` se toma el otro camino, el del Bloque 2 (en construcción).
-Comparte scanner y parser con el anterior: lo que cambia es qué se hace con el
-árbol.
+Ese es el camino de `--tree-walk`. Por defecto se toma el otro, el del Bloque 2.
+Comparte scanner, parser y resolver con el anterior: lo que cambia es qué se
+hace con el árbol.
 
 ```
- [2. Parser]
-       │ []ast.Stmt         (sentencias, variables y control de flujo)
+ [3. Resolver]
+       │ []ast.Stmt
        ▼
  [5. Compiler] ──────────► errores de compilación (65)
        │ *bytecode.Chunk    (instrucciones + constantes + líneas)
@@ -178,14 +177,14 @@ Comparte scanner y parser con el anterior: lo que cambia es qué se hace con el
 
 | Paquete | Qué hace |
 |---|---|
-| `cmd/glox` | CLI: REPL, archivo, `--scanning`, `--parsing`, `--disassemble` y códigos de salida. Arma el pipeline y corta en la primera etapa con errores. |
+| `cmd/glox` | CLI: REPL, archivo, `--scanning`, `--parsing`, `--disassemble`, `--tree-walk` y códigos de salida. Arma el pipeline y corta en la primera etapa con errores. |
 | `internal/token` | `TokenType` (enum con `iota`) y `Token{Type, Lexeme, Literal, Line}`. |
 | `internal/scanner` | Análisis léxico *maximal munch*. Acumula todos los errores léxicos del archivo en vez de cortar en el primero. |
 | `internal/ast` | Nodos del AST como structs de datos puros, separados por archivo (`ast.go`, `stmt.go`, `expr_variable.go`, `expr_logical.go`, `expr_call.go`). Cada nodo se imprime en notación prefija (`String()`). |
 | `internal/parser` | Parser recursivo descendente: una función por regla de la gramática. Desazucara `for` a `while`. Se recupera de los errores sincronizando hasta la próxima sentencia. |
 | `internal/resolver` | Análisis semántico estático: calcula la distancia de scope de cada variable local y detecta `return` fuera de funciones, lecturas de una variable en su propio inicializador y redeclaraciones locales. |
 | `internal/interpreter` | Evaluación con `type switch`, `Environment` encadenado, funciones con closures. |
-| `internal/bytecode` | Bloque 2, en construcción. `Chunk` (bytecode + tabla de constantes + línea de cada byte), el juego de instrucciones (`OpCode`), un disassembler, el compilador (recorre en postorden el mismo AST que usa el intérprete) y la VM de pila. Cubre expresiones aritméticas, comparaciones, lógica con cortocircuito, sentencias print, variables globales y locales, bloques, condicional `if`/`else` y bucles `while` y `for`. |
+| `internal/bytecode` | Bloque 2: el camino por defecto. `Chunk` (bytecode + tabla de constantes + línea de cada byte), el juego de instrucciones (`OpCode`), un disassembler, el compilador (recorre en postorden el mismo AST que usa el intérprete, con un chunk por función) y la VM de pila con un `callFrame` por llamada. Cubre todo el lenguaje del Bloque 1, incluidas funciones, recursión y closures (las locales capturadas viven en celdas del heap). |
 
 ### Gramática implementada
 

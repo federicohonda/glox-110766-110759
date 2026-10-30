@@ -204,34 +204,6 @@ func TestCompileLimiteDeConstantes(t *testing.T) {
 	})
 }
 
-// Lo que el lenguaje tiene pero el compilador todavía no traduce se rechaza
-// con un error, en vez de generar bytecode incompleto.
-func TestCompileConstruccionesTodaviaNoSoportadas(t *testing.T) {
-	tests := []struct {
-		source   string
-		expected string
-	}{
-		{"f(1)", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las llamadas."},
-		{"f(1) + 2", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las llamadas."},
-		{"f(1) +\ny()", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las llamadas."},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.source, func(t *testing.T) {
-			chunk, err := compileSource(t, tt.source)
-			if chunk != nil {
-				t.Error("se esperaba un chunk nil junto con el error")
-			}
-			if err == nil {
-				t.Fatalf("Compile(%q) no devolvió error", tt.source)
-			}
-			if err.Error() != tt.expected {
-				t.Errorf("mensaje = %q, esperado %q", err.Error(), tt.expected)
-			}
-		})
-	}
-}
-
 // Precedencia con paréntesis anidados: lo que está más adentro se emite
 // primero, sin importar en qué orden está escrito.
 func TestCompileParentesisAnidados(t *testing.T) {
@@ -332,31 +304,6 @@ func TestCompileSinExpresion(t *testing.T) {
 	}
 	if err == nil {
 		t.Fatal("Compile(nil) no devolvió error")
-	}
-}
-
-func TestCompileProgramSentenciasTodaviaNoSoportadas(t *testing.T) {
-	tests := []struct {
-		source   string
-		expected string
-	}{
-		{"fun f() {}", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las funciones."},
-		{"return 1;", "[línea 1] Error de compilación: el compilador a bytecode todavía no soporta la sentencia 'return'."},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.source, func(t *testing.T) {
-			chunk, err := compileProgramSource(t, tt.source)
-			if chunk != nil {
-				t.Error("se esperaba un chunk nil junto con el error")
-			}
-			if err == nil {
-				t.Fatalf("CompileProgram(%q) no devolvió error", tt.source)
-			}
-			if err.Error() != tt.expected {
-				t.Errorf("mensaje = %q, esperado %q", err.Error(), tt.expected)
-			}
-		})
 	}
 }
 
@@ -486,7 +433,7 @@ func TestCompileProgramTopeLocales(t *testing.T) {
 	if err == nil {
 		t.Fatal("esperaba error al superar 256 variables locales")
 	}
-	expected := "[línea 259] Error de compilación: demasiadas variables locales en un mismo bloque (el máximo es 256)."
+	expected := "[línea 259] Error de compilación: demasiadas variables locales en una misma función (el máximo es 256)."
 	if err.Error() != expected {
 		t.Errorf("error = %q, esperado %q", err.Error(), expected)
 	}

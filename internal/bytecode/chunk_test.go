@@ -20,6 +20,13 @@ func TestOpCodeString(t *testing.T) {
 		{bytecode.OpModulo, "OP_MODULO"},
 		{bytecode.OpNegate, "OP_NEGATE"},
 		{bytecode.OpReturn, "OP_RETURN"},
+		{bytecode.OpBox, "OP_BOX"},
+		{bytecode.OpGetCell, "OP_GET_CELL"},
+		{bytecode.OpSetCell, "OP_SET_CELL"},
+		{bytecode.OpGetCaptured, "OP_GET_CAPTURED"},
+		{bytecode.OpSetCaptured, "OP_SET_CAPTURED"},
+		{bytecode.OpClosure, "OP_CLOSURE"},
+		{bytecode.OpCall, "OP_CALL"},
 		{bytecode.OpCode(250), "OpCode(250)"},
 	}
 

@@ -24,13 +24,34 @@ func (e *RuntimeError) Error() string {
 // un tope: si una expresión necesita más, el slice crece.
 const stackInitialCapacity = 256
 
+// maxFrames es la profundidad máxima de llamadas anidadas. La pila podría
+// seguir creciendo, pero una recursión infinita terminaría agotando la
+// memoria en vez de dar un error.
+const maxFrames = 100_000
+
+// callFrame es una invocación en curso. base es el índice en la pila donde
+// está el callee: sus argumentos y locales son los slots que siguen, y los
+// operandos de OpGetLocal/OpSetLocal son relativos a base. ip es dónde
+// retomar la función cuando la llamada que hizo vuelva (el de la función en
+// curso vive en VM.ip).
+type callFrame struct {
+	closure *Closure
+	ip      int
+	base    int
+}
+
 // VM es una máquina virtual de pila: cada instrucción toma sus operandos del
 // tope de la pila y deja ahí su resultado.
 type VM struct {
+	// chunk, ip, base y closure son los del frame en curso, copiados afuera
+	// de frames para no indexar el slice en cada instrucción.
 	chunk *Chunk
 	// ip (instruction pointer) es el índice en chunk.Code del próximo byte a
 	// leer.
 	ip      int
+	base    int
+	closure *Closure
+	frames  []callFrame
 	stack   []Value
 	globals map[string]Value
 	out     io.Writer
@@ -51,17 +72,19 @@ func NewVM(out ...io.Writer) *VM {
 }
 
 // Run ejecuta el chunk desde su primera instrucción y devuelve el valor que
-// queda en el tope de la pila al llegar a OpReturn.
+// queda en el tope de la pila al llegar a su OpReturn. El chunk corre como
+// una función más (el programa), en el frame de más abajo.
 //
 // La VM confía en que el chunk está bien formado, que es lo que garantiza el
 // compilador: no verifica en cada instrucción que la pila tenga los operandos
 // que hacen falta.
 func (vm *VM) Run(chunk *Chunk) (Value, error) {
-	vm.chunk = chunk
-	vm.ip = 0
+	script := &Closure{Function: &Function{Name: "script", Chunk: chunk}}
 	vm.stack = vm.stack[:0]
+	vm.frames = append(vm.frames[:0], callFrame{closure: script})
+	vm.closure, vm.chunk, vm.ip, vm.base = script, chunk, 0, 0
 
-	for vm.ip < len(chunk.Code) {
+	for vm.ip < len(vm.chunk.Code) {
 		// offset es dónde empieza la instrucción en curso: es el que sirve
 		// para buscar su línea si falla, porque ip ya avanzó.
 		offset := vm.ip
@@ -69,7 +92,7 @@ func (vm *VM) Run(chunk *Chunk) (Value, error) {
 
 		switch op {
 		case OpConstant:
-			vm.push(chunk.Constants[vm.readByte()])
+			vm.push(vm.chunk.Constants[vm.readByte()])
 
 		case OpAdd:
 			right, left := vm.pop(), vm.pop()
@@ -136,11 +159,11 @@ func (vm *VM) Run(chunk *Chunk) (Value, error) {
 			fmt.Fprintln(vm.out, formatValue(vm.pop()))
 
 		case OpDefineGlobal:
-			name := chunk.Constants[vm.readByte()].(string)
+			name := vm.chunk.Constants[vm.readByte()].(string)
 			vm.globals[name] = vm.pop()
 
 		case OpGetGlobal:
-			name := chunk.Constants[vm.readByte()].(string)
+			name := vm.chunk.Constants[vm.readByte()].(string)
 			val, ok := vm.globals[name]
 			if !ok {
 				return nil, vm.runtimeError(offset, name, "variable no definida '%s'.", name)
@@ -148,19 +171,55 @@ func (vm *VM) Run(chunk *Chunk) (Value, error) {
 			vm.push(val)
 
 		case OpSetGlobal:
-			name := chunk.Constants[vm.readByte()].(string)
+			name := vm.chunk.Constants[vm.readByte()].(string)
 			if _, ok := vm.globals[name]; !ok {
 				return nil, vm.runtimeError(offset, name, "variable no definida '%s'.", name)
 			}
 			vm.globals[name] = vm.peek(0)
 
 		case OpGetLocal:
-			slot := int(vm.readByte())
+			slot := vm.base + int(vm.readByte())
 			vm.push(vm.stack[slot])
 
 		case OpSetLocal:
-			slot := int(vm.readByte())
+			slot := vm.base + int(vm.readByte())
 			vm.stack[slot] = vm.peek(0)
+
+		case OpBox:
+			slot := vm.base + int(vm.readByte())
+			vm.stack[slot] = &Cell{Value: vm.stack[slot]}
+
+		case OpGetCell:
+			slot := vm.base + int(vm.readByte())
+			vm.push(vm.stack[slot].(*Cell).Value)
+
+		case OpSetCell:
+			slot := vm.base + int(vm.readByte())
+			vm.stack[slot].(*Cell).Value = vm.peek(0)
+
+		case OpGetCaptured:
+			vm.push(vm.closure.Captured[vm.readByte()].Value)
+
+		case OpSetCaptured:
+			vm.closure.Captured[vm.readByte()].Value = vm.peek(0)
+
+		case OpClosure:
+			fn := vm.chunk.Constants[vm.readByte()].(*Function)
+			closure := &Closure{Function: fn, Captured: make([]*Cell, fn.CapturedCount)}
+			for i := range closure.Captured {
+				fromLocal, index := vm.readByte(), int(vm.readByte())
+				if fromLocal == 1 {
+					closure.Captured[i] = vm.stack[vm.base+index].(*Cell)
+				} else {
+					closure.Captured[i] = vm.closure.Captured[index]
+				}
+			}
+			vm.push(closure)
+
+		case OpCall:
+			if err := vm.call(offset, int(vm.readByte())); err != nil {
+				return nil, err
+			}
 
 		case OpNot:
 			vm.push(!isTruthy(vm.pop()))
@@ -218,10 +277,20 @@ func (vm *VM) Run(chunk *Chunk) (Value, error) {
 			vm.ip -= offsetJump
 
 		case OpReturn:
-			if len(vm.stack) == 0 {
-				return nil, nil
+			if len(vm.frames) == 1 {
+				if len(vm.stack) == 0 {
+					return nil, nil
+				}
+				return vm.pop(), nil
 			}
-			return vm.pop(), nil
+			// Se descartan de una vez los argumentos, las locales y el callee,
+			// y el resultado queda en el lugar del callee.
+			result := vm.pop()
+			vm.stack = vm.stack[:vm.base]
+			vm.frames = vm.frames[:len(vm.frames)-1]
+			caller := &vm.frames[len(vm.frames)-1]
+			vm.closure, vm.chunk, vm.ip, vm.base = caller.closure, caller.closure.Function.Chunk, caller.ip, caller.base
+			vm.push(result)
 
 		default:
 			return nil, fmt.Errorf("la VM encontró un opcode desconocido (%d) en el offset %d", byte(op), offset)
@@ -229,6 +298,28 @@ func (vm *VM) Run(chunk *Chunk) (Value, error) {
 	}
 
 	return nil, fmt.Errorf("el chunk terminó sin un %s", OpReturn)
+}
+
+// call arma el frame de la invocación de un callee que está en la pila debajo
+// de sus argc argumentos. Los argumentos no se copian: quedan donde están y
+// pasan a ser los primeros slots del frame nuevo.
+func (vm *VM) call(offset, argc int) error {
+	callee := vm.peek(argc)
+	closure, ok := callee.(*Closure)
+	if !ok {
+		return vm.runtimeError(offset, ")", "solo se pueden llamar funciones, se obtuvo: %v", formatValue(callee))
+	}
+	if argc != closure.Function.Arity {
+		return vm.runtimeError(offset, ")", "se esperaban %d argumentos pero se recibieron %d.", closure.Function.Arity, argc)
+	}
+	if len(vm.frames) >= maxFrames {
+		return vm.runtimeError(offset, ")", "desbordamiento de pila (más de %d llamadas anidadas).", maxFrames)
+	}
+	vm.frames[len(vm.frames)-1].ip = vm.ip
+	base := len(vm.stack) - argc - 1
+	vm.frames = append(vm.frames, callFrame{closure: closure, base: base})
+	vm.closure, vm.chunk, vm.ip, vm.base = closure, closure.Function.Chunk, 0, base
+	return nil
 }
 
 func (vm *VM) readByte() byte {

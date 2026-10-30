@@ -1,0 +1,7 @@
+// La función compila a su propio chunk, que se lista después del programa.
+// ops: OP_CLOSURE OP_DEFINE_GLOBAL OP_GET_GLOBAL OP_CONSTANT OP_CONSTANT OP_CALL OP_PRINT OP_RETURN OP_GET_LOCAL OP_GET_LOCAL OP_ADD OP_RETURN OP_CONSTANT OP_RETURN
+// expect: 3
+fun suma(a, b) {
+  return a + b;
+}
+print suma(1, 2);

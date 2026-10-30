@@ -1,0 +1,4 @@
+// exit: 70
+// stderr: [línea 4] Error en tiempo de ejecución en ')': se esperaban 2 argumentos pero se recibieron 1.
+fun f(a, b) {}
+f(1);
