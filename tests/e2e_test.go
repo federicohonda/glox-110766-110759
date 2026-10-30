@@ -1,5 +1,7 @@
 // Package tests corre glox como lo usaría cualquiera: compila el binario y lo
 // ejecuta sobre scripts .lox, comparando stdout, stderr y código de salida.
+// Los scripts de tests/lox y el REPL se corren dos veces: con la VM (el
+// camino por defecto) y con --tree-walk, y los dos tienen que dar lo mismo.
 //
 // Cada script de tests/lox declara lo que espera con comentarios:
 //
@@ -11,12 +13,13 @@
 // salida guardada en tests/golden/, y que los scripts de benchmarks/ den el
 // resultado que declaran.
 //
-// Los scripts de tests/bytecode se corren con --disassemble. Cada uno es una
-// expresión suelta y usa los mismos comentarios, más uno propio:
+// Los scripts de tests/bytecode se corren con --disassemble y usan los mismos
+// comentarios, más uno propio:
 //
 //	// ops: OP_CONSTANT OP_NEGATE OP_RETURN   las instrucciones del listado, en orden
 //
-// En ellos `// expect:` es el resultado que imprime la VM.
+// En ellos `// expect:` es el resultado que imprime la VM, y `// ops:` incluye
+// las instrucciones de cada función, en el orden en que se listan.
 package tests
 
 import (
@@ -125,6 +128,16 @@ func splitLines(s string) []string {
 	return strings.Split(s, "\n")
 }
 
+// backends son los dos caminos de ejecución del CLI y los flags que los
+// eligen.
+var backends = []struct {
+	name  string
+	flags []string
+}{
+	{"vm", nil},
+	{"tree-walk", []string{"--tree-walk"}},
+}
+
 func TestScripts(t *testing.T) {
 	files, err := filepath.Glob("lox/*/*.lox")
 	if err != nil {
@@ -133,28 +146,34 @@ func TestScripts(t *testing.T) {
 	if len(files) == 0 {
 		t.Fatal("no se encontraron scripts en tests/lox")
 	}
-	for _, path := range files {
-		name := strings.TrimSuffix(strings.TrimPrefix(path, "lox/"), ".lox")
-		t.Run(name, func(t *testing.T) {
-			want := parseExpectations(t, path)
-			got := runGlox(t, path)
+	for _, backend := range backends {
+		for _, path := range files {
+			name := strings.TrimSuffix(strings.TrimPrefix(path, "lox/"), ".lox")
+			t.Run(backend.name+"/"+name, func(t *testing.T) {
+				checkScript(t, path, runGlox(t, append(backend.flags, path)...))
+			})
+		}
+	}
+}
 
-			if got.exit != want.exit {
-				t.Errorf("código de salida = %d, se esperaba %d\nstderr:\n%s", got.exit, want.exit, got.stderr)
-			}
-			gotLines := splitLines(got.stdout)
-			if strings.Join(gotLines, "\n") != strings.Join(want.stdout, "\n") {
-				t.Errorf("stdout distinto\n--- obtenido\n%s\n--- esperado\n%s", strings.Join(gotLines, "\n"), strings.Join(want.stdout, "\n"))
-			}
-			for _, fragment := range want.stderr {
-				if !strings.Contains(got.stderr, fragment) {
-					t.Errorf("stderr no contiene %q\nstderr:\n%s", fragment, got.stderr)
-				}
-			}
-			if len(want.stderr) == 0 && got.stderr != "" {
-				t.Errorf("stderr inesperado:\n%s", got.stderr)
-			}
-		})
+func checkScript(t *testing.T, path string, got result) {
+	t.Helper()
+	want := parseExpectations(t, path)
+
+	if got.exit != want.exit {
+		t.Errorf("código de salida = %d, se esperaba %d\nstderr:\n%s", got.exit, want.exit, got.stderr)
+	}
+	gotLines := splitLines(got.stdout)
+	if strings.Join(gotLines, "\n") != strings.Join(want.stdout, "\n") {
+		t.Errorf("stdout distinto\n--- obtenido\n%s\n--- esperado\n%s", strings.Join(gotLines, "\n"), strings.Join(want.stdout, "\n"))
+	}
+	for _, fragment := range want.stderr {
+		if !strings.Contains(got.stderr, fragment) {
+			t.Errorf("stderr no contiene %q\nstderr:\n%s", fragment, got.stderr)
+		}
+	}
+	if len(want.stderr) == 0 && got.stderr != "" {
+		t.Errorf("stderr inesperado:\n%s", got.stderr)
 	}
 }
 
@@ -238,20 +257,24 @@ func sameValue(got, want string) bool {
 
 // El REPL mantiene el estado entre líneas y no corta ante un error.
 func TestREPL(t *testing.T) {
-	cmd := exec.Command(gloxBin)
-	cmd.Stdin = strings.NewReader("var a = 1;\nfun inc() { a = a + 1; return a; }\nprint nope;\nprint inc();\nprint a;\n")
-	var out, errOut bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errOut
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("el REPL terminó con error: %v", err)
-	}
-	stdout := strings.ReplaceAll(out.String(), "> ", "")
-	if got := splitLines(stdout); strings.Join(got, ",") != "2,2" {
-		t.Errorf("stdout = %q, se esperaba 2 y 2", stdout)
-	}
-	if !strings.Contains(errOut.String(), "variable no definida 'nope'") {
-		t.Errorf("stderr = %q", errOut.String())
+	for _, backend := range backends {
+		t.Run(backend.name, func(t *testing.T) {
+			cmd := exec.Command(gloxBin, backend.flags...)
+			cmd.Stdin = strings.NewReader("var a = 1;\nfun inc() { a = a + 1; return a; }\nprint nope;\nprint inc();\nprint a;\n")
+			var out, errOut bytes.Buffer
+			cmd.Stdout = &out
+			cmd.Stderr = &errOut
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("el REPL terminó con error: %v", err)
+			}
+			stdout := strings.ReplaceAll(out.String(), "> ", "")
+			if got := splitLines(stdout); strings.Join(got, ",") != "2,2" {
+				t.Errorf("stdout = %q, se esperaba 2 y 2", stdout)
+			}
+			if !strings.Contains(errOut.String(), "variable no definida 'nope'") {
+				t.Errorf("stderr = %q", errOut.String())
+			}
+		})
 	}
 }
 
@@ -459,7 +482,8 @@ func TestDisassembleEntradaVacia(t *testing.T) {
 }
 
 // Los mismos programas dan lo mismo por los dos caminos del CLI: el
-// tree-walk y la VM con --disassemble. Es la comparación
+// tree-walk y la VM (con --disassemble, para ver además que el listado no
+// cambia lo que se ejecuta). Es la comparación
 // de los tests unitarios de internal/bytecode, pero sobre el binario real.
 func TestDisassembleCoincideConElTreeWalk(t *testing.T) {
 	sources := []string{
@@ -484,6 +508,13 @@ func TestDisassembleCoincideConElTreeWalk(t *testing.T) {
 		"print 1 != 2;",
 		"var sum = 0; var i = 0; while (i < 5) { sum = sum + i; i = i + 1; } print sum;",
 		"var fact = 1; for (var n = 1; n <= 5; n = n + 1) fact = fact * n; print fact;",
+		"fun fib(n) { if (n < 2) return n; return fib(n - 2) + fib(n - 1); } print fib(15);",
+		"fun mc() { var i = 0; fun c() { i = i + 1; return i; } return c; } var a = mc(); var b = mc(); print a(); print a(); print b();",
+		`var a = "global"; { fun showA() { print a; } showA(); var a = "block"; showA(); }`,
+		"fun f(a) {} f();",
+		"var x = 1; x();",
+		"fun f() { return 1 / 0; } print f();",
+		"fun f() {} print f; print f();",
 	}
 
 	for _, source := range sources {
@@ -494,7 +525,7 @@ func TestDisassembleCoincideConElTreeWalk(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			treeWalk := runGlox(t, path)
+			treeWalk := runGlox(t, "--tree-walk", path)
 			vm := runGlox(t, "--disassemble", path)
 
 			if vm.exit != treeWalk.exit {
@@ -508,59 +539,6 @@ func TestDisassembleCoincideConElTreeWalk(t *testing.T) {
 				t.Errorf("resultado distinto\n--- VM\n%s\n--- tree-walk\n%s", strings.Join(result, "\n"), treeWalk.stdout)
 			}
 		})
-	}
-}
-
-// Los scripts de tests/lox que no usan funciones (Bloque 1 completo: expresiones,
-// variables y control de flujo) deben ejecutar en la VM con --disassemble y
-// producir exactamente las mismas salidas y códigos de error que en el tree-walk.
-func TestScriptsLoxEnLaVM(t *testing.T) {
-	patterns := []string{
-		"lox/control/*.lox",
-		"lox/expresiones/*.lox",
-		"lox/variables/*.lox",
-	}
-	for _, pattern := range patterns {
-		files, err := filepath.Glob(pattern)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, path := range files {
-			src, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			// Omitir los scripts que usan funciones (fun), pendientes para la Fase 9.
-			if strings.Contains(string(src), "fun ") {
-				continue
-			}
-
-			name := strings.TrimSuffix(strings.TrimPrefix(path, "lox/"), ".lox")
-			t.Run(name, func(t *testing.T) {
-				want := parseExpectations(t, path)
-				got := runGlox(t, "--disassemble", path)
-
-				if got.exit != want.exit {
-					t.Errorf("código de salida = %d, se esperaba %d\nstderr:\n%s", got.exit, want.exit, got.stderr)
-				}
-				for _, fragment := range want.stderr {
-					if !strings.Contains(got.stderr, fragment) {
-						t.Errorf("stderr no contiene %q\nstderr:\n%s", fragment, got.stderr)
-					}
-				}
-				if len(want.stderr) == 0 && got.stderr != "" {
-					t.Errorf("stderr inesperado:\n%s", got.stderr)
-				}
-				if want.exit == 65 {
-					return
-				}
-				_, result := splitDisassemble(t, got.stdout)
-				gotLines := splitLines(strings.Join(result, "\n"))
-				if strings.Join(gotLines, "\n") != strings.Join(want.stdout, "\n") {
-					t.Errorf("stdout distinto\n--- obtenido\n%s\n--- esperado\n%s", strings.Join(gotLines, "\n"), strings.Join(want.stdout, "\n"))
-				}
-			})
-		}
 	}
 }
 
