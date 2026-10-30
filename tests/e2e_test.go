@@ -382,7 +382,7 @@ func TestBytecodeScripts(t *testing.T) {
 // vacía no hace nada.
 func TestDisassembleREPL(t *testing.T) {
 	cmd := exec.Command(gloxBin, "--disassemble")
-	cmd.Stdin = strings.NewReader("var a = 1;\nprint a + 2;\n\n1 / 0;\n1 +;\nfun f() {}\nprint 3 * 3;\n")
+	cmd.Stdin = strings.NewReader("var a = 1;\nprint a + 2;\n\n1 / 0;\n1 +;\nreturn 1;\nprint 3 * 3;\n")
 	var out, errOut bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errOut
@@ -413,7 +413,7 @@ func TestDisassembleREPL(t *testing.T) {
 		"0005    | OP_POP",
 		"0006    | OP_RETURN",
 		"== RUNTIME ==",
-		// `1 +;` y `fun f() {}` son errores estáticos: no dejan nada en stdout.
+		// `1 +;` y `return 1;` son errores estáticos: no dejan nada en stdout.
 		"== COMPILETIME ==",
 		"0000    1 OP_CONSTANT         0 '3'",
 		"0002    | OP_CONSTANT         1 '3'",
@@ -431,7 +431,7 @@ func TestDisassembleREPL(t *testing.T) {
 	wantErrs := []string{
 		"[línea 1] Error en tiempo de ejecución en '/': división por cero.",
 		"[línea 1] Error de sintaxis en ';': se esperaba una expresión.",
-		"[línea 1] Error de compilación: el compilador a bytecode todavía no soporta las funciones.",
+		"[línea 1] Error semántico en 'return': no se puede usar 'return' fuera de una función.",
 	}
 	if got := splitLines(errOut.String()); strings.Join(got, "\n") != strings.Join(wantErrs, "\n") {
 		t.Errorf("stderr distinto\n--- obtenido\n%s\n--- esperado\n%s", errOut.String(), strings.Join(wantErrs, "\n"))

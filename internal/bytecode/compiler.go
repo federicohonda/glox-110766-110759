@@ -11,9 +11,14 @@ import (
 // operando de OpConstant es un único byte.
 const maxConstants = 256
 
-// maxLocals es la cantidad de variables locales que entran en un chunk: los
-// operandos de OpGetLocal y OpSetLocal son de un único byte.
+// maxLocals es la cantidad de variables locales que entran en una función
+// (contando el slot del callee): los operandos de OpGetLocal y OpSetLocal son
+// de un único byte.
 const maxLocals = 256
+
+// maxCaptured es la cantidad de variables que puede capturar una función: el
+// operando de OpGetCaptured y OpSetCaptured es de un único byte.
+const maxCaptured = 256
 
 // CompileError es un error detectado al generar bytecode: un límite del
 // formato de las instrucciones, o una construcción del lenguaje que el
@@ -48,11 +53,31 @@ var binaryOps = map[token.TokenType]OpCode{
 type local struct {
 	name  string
 	depth int
+	// captured indica que alguna función anidada la usa: su slot guarda una
+	// *Cell en vez del valor.
+	captured bool
 }
 
-// compiler recorre el AST y va escribiendo el bytecode en su chunk.
+// capture dice de dónde saca OpClosure cada variable capturada: de un slot
+// del frame que crea la closure (fromLocal) o del Captured de esa misma
+// closure, cuando la variable viene de más afuera.
+type capture struct {
+	fromLocal bool
+	index     int
+}
+
+// compiler recorre el AST y va escribiendo el bytecode en su chunk. Hay uno
+// por función que se está compilando, encadenados por enclosing hasta el del
+// programa.
 type compiler struct {
-	chunk *Chunk
+	enclosing *compiler
+	chunk     *Chunk
+	// captures son las variables de funciones externas que usa esta función,
+	// en el orden en que quedan en Closure.Captured.
+	captures []capture
+	// captured son las declaraciones locales que alguna función anidada usa
+	// (ver findCaptured). Es el mismo mapa para todos los compiladores.
+	captured map[any]bool
 	// line es la línea de la última instrucción emitida.
 	line int
 	// globals deduplica los nombres de las variables globales en Constants.
@@ -69,7 +94,7 @@ type compiler struct {
 // vuelve a parsear, así que la precedencia y la asociatividad ya vienen
 // resueltas en la forma del árbol. Se corta en el primer error.
 func Compile(expr ast.Expr) (*Chunk, error) {
-	c := &compiler{chunk: &Chunk{}, globals: make(map[string]int)}
+	c := &compiler{chunk: &Chunk{}, globals: make(map[string]int), captured: map[any]bool{}}
 	if err := c.expression(expr); err != nil {
 		return nil, err
 	}
@@ -78,9 +103,11 @@ func Compile(expr ast.Expr) (*Chunk, error) {
 }
 
 // CompileProgram traduce una lista de sentencias a un Chunk nuevo, terminado
-// en OpReturn. Se corta en el primer error.
+// en OpReturn. Cada función declarada queda compilada a su propio chunk,
+// dentro de la tabla de constantes del chunk que la declara. Se corta en el
+// primer error.
 func CompileProgram(stmts []ast.Stmt) (*Chunk, error) {
-	c := &compiler{chunk: &Chunk{}, globals: make(map[string]int)}
+	c := &compiler{chunk: &Chunk{}, globals: make(map[string]int), captured: findCaptured(stmts)}
 	for _, stmt := range stmts {
 		if err := c.statement(stmt); err != nil {
 			return nil, err
@@ -124,12 +151,14 @@ func (c *compiler) statement(stmt ast.Stmt) error {
 
 		if c.scopeDepth > 0 {
 			if len(c.locals) >= maxLocals {
-				return &CompileError{
-					Line:    s.Name.Line,
-					Message: fmt.Sprintf("demasiadas variables locales en un mismo bloque (el máximo es %d).", maxLocals),
-				}
+				return tooManyLocals(s.Name.Line)
 			}
-			c.locals = append(c.locals, local{name: s.Name.Lexeme, depth: c.scopeDepth})
+			slot := len(c.locals)
+			captured := c.captured[s]
+			c.locals = append(c.locals, local{name: s.Name.Lexeme, depth: c.scopeDepth, captured: captured})
+			if captured {
+				c.emitByte(OpBox, slot, s.Name.Line)
+			}
 			return nil
 		}
 
@@ -137,8 +166,7 @@ func (c *compiler) statement(stmt ast.Stmt) error {
 		if err != nil {
 			return err
 		}
-		c.emit(OpDefineGlobal, s.Name.Line)
-		c.chunk.Write(byte(nameIdx), s.Name.Line)
+		c.emitByte(OpDefineGlobal, nameIdx, s.Name.Line)
 		return nil
 
 	case *ast.Block:
@@ -203,10 +231,56 @@ func (c *compiler) statement(stmt ast.Stmt) error {
 		return nil
 
 	case *ast.FunDecl:
-		return unsupported(s.Name.Line, "las funciones")
+		line := s.Name.Line
+		if c.scopeDepth == 0 {
+			if err := c.function(s); err != nil {
+				return err
+			}
+			nameIdx, err := c.nameConstant(s.Name.Lexeme, line)
+			if err != nil {
+				return err
+			}
+			c.emitByte(OpDefineGlobal, nameIdx, line)
+			return nil
+		}
+
+		// La local se registra antes de compilar el cuerpo para que la
+		// función pueda llamarse a sí misma.
+		if len(c.locals) >= maxLocals {
+			return tooManyLocals(line)
+		}
+		slot := len(c.locals)
+		captured := c.captured[s]
+		c.locals = append(c.locals, local{name: s.Name.Lexeme, depth: c.scopeDepth, captured: captured})
+		if !captured {
+			return c.function(s)
+		}
+		// Si se captura (a sí misma, o desde otra función anidada), la celda
+		// tiene que existir antes de crear la closure: se reserva el slot con
+		// nil, se envuelve, se crea la closure y recién ahí se guarda en la
+		// celda.
+		if err := c.constant(nil, line); err != nil {
+			return err
+		}
+		c.emitByte(OpBox, slot, line)
+		if err := c.function(s); err != nil {
+			return err
+		}
+		c.emitByte(OpSetCell, slot, line)
+		c.emit(OpPop, line)
+		return nil
 
 	case *ast.ReturnStmt:
-		return unsupported(s.Keyword.Line, "la sentencia 'return'")
+		line := s.Keyword.Line
+		if s.Value != nil {
+			if err := c.expression(s.Value); err != nil {
+				return err
+			}
+		} else if err := c.constant(nil, line); err != nil {
+			return err
+		}
+		c.emit(OpReturn, line)
+		return nil
 
 	default:
 		return fmt.Errorf("tipo de sentencia no soportado por el compilador: %T", stmt)
@@ -333,38 +407,29 @@ func (c *compiler) expression(expr ast.Expr) error {
 		return unsupported(e.Operator.Line, fmt.Sprintf("el operador '%s'", e.Operator.Lexeme))
 
 	case *ast.Variable:
-		if slot := c.resolveLocal(e.Name.Lexeme); slot != -1 {
-			c.emit(OpGetLocal, e.Name.Line)
-			c.chunk.Write(byte(slot), e.Name.Line)
-			return nil
-		}
-		nameIdx, err := c.nameConstant(e.Name.Lexeme, e.Name.Line)
-		if err != nil {
-			return err
-		}
-		c.emit(OpGetGlobal, e.Name.Line)
-		c.chunk.Write(byte(nameIdx), e.Name.Line)
-		return nil
+		return c.variable(e.Name, false)
 
 	case *ast.Assign:
 		if err := c.expression(e.Value); err != nil {
 			return err
 		}
-		if slot := c.resolveLocal(e.Name.Lexeme); slot != -1 {
-			c.emit(OpSetLocal, e.Name.Line)
-			c.chunk.Write(byte(slot), e.Name.Line)
-			return nil
-		}
-		nameIdx, err := c.nameConstant(e.Name.Lexeme, e.Name.Line)
-		if err != nil {
-			return err
-		}
-		c.emit(OpSetGlobal, e.Name.Line)
-		c.chunk.Write(byte(nameIdx), e.Name.Line)
-		return nil
+		return c.variable(e.Name, true)
 
 	case *ast.Call:
-		return unsupported(e.Paren.Line, "las llamadas")
+		// Regla de oro: el callee y los argumentos se evalúan, en orden, antes
+		// de chequear si el valor es invocable o si la aridad coincide.
+		if err := c.expression(e.Callee); err != nil {
+			return err
+		}
+		for _, arg := range e.Arguments {
+			if err := c.expression(arg); err != nil {
+				return err
+			}
+		}
+		// El parser ya rechaza más de 255 argumentos, así que entran en el
+		// byte del operando.
+		c.emitByte(OpCall, len(e.Arguments), e.Paren.Line)
+		return nil
 
 	default:
 		return fmt.Errorf("tipo de expresión no soportado por el compilador: %T", expr)
@@ -406,6 +471,155 @@ func (c *compiler) nameConstant(name string, line int) (int, error) {
 func (c *compiler) emit(op OpCode, line int) {
 	c.chunk.WriteOp(op, line)
 	c.line = line
+}
+
+// emitByte emite una instrucción con un operando de un byte.
+func (c *compiler) emitByte(op OpCode, operand int, line int) {
+	c.emit(op, line)
+	c.chunk.Write(byte(operand), line)
+}
+
+// function compila la declaración a un chunk propio, con un compilador nuevo
+// encadenado a c, y emite en c el OpClosure que crea la closure en runtime.
+func (c *compiler) function(decl *ast.FunDecl) error {
+	line := decl.Name.Line
+	fn := &Function{Name: decl.Name.Lexeme, Arity: len(decl.Params), Chunk: &Chunk{}}
+	fc := &compiler{
+		enclosing: c,
+		chunk:     fn.Chunk,
+		captured:  c.captured,
+		globals:   make(map[string]int),
+		// El slot 0 del frame es el callee: queda reservado con un nombre que
+		// ninguna variable puede tener. Los parámetros van del 1 en adelante.
+		locals:     []local{{name: ""}},
+		scopeDepth: 1,
+		line:       line,
+	}
+	for i := range decl.Params {
+		slot := len(fc.locals)
+		captured := c.captured[&decl.Params[i]]
+		fc.locals = append(fc.locals, local{name: decl.Params[i].Lexeme, depth: 1, captured: captured})
+		if captured {
+			// El argumento llega como valor en su slot: el prólogo lo envuelve
+			// en una celda en el mismo lugar.
+			fc.emitByte(OpBox, slot, decl.Params[i].Line)
+		}
+	}
+	for _, stmt := range decl.Body {
+		if err := fc.statement(stmt); err != nil {
+			return err
+		}
+	}
+	// Una función que termina sin `return` devuelve nil.
+	if err := fc.constant(nil, fc.line); err != nil {
+		return err
+	}
+	fc.emit(OpReturn, fc.line)
+	fn.CapturedCount = len(fc.captures)
+
+	if len(c.chunk.Constants) >= maxConstants {
+		return &CompileError{
+			Line:    line,
+			Message: fmt.Sprintf("demasiadas constantes en un mismo chunk (el máximo es %d).", maxConstants),
+		}
+	}
+	c.emitByte(OpClosure, c.chunk.AddConstant(fn), line)
+	for _, cp := range fc.captures {
+		fromLocal := 0
+		if cp.fromLocal {
+			fromLocal = 1
+		}
+		c.chunk.Write(byte(fromLocal), line)
+		c.chunk.Write(byte(cp.index), line)
+	}
+	return nil
+}
+
+// variable emite la lectura (o la escritura, si set) de una variable: local
+// de esta función, capturada de una función externa, o global.
+func (c *compiler) variable(name token.Token, set bool) error {
+	line := name.Line
+	if slot := c.resolveLocal(name.Lexeme); slot != -1 {
+		get, put := OpGetLocal, OpSetLocal
+		if c.locals[slot].captured {
+			get, put = OpGetCell, OpSetCell
+		}
+		if set {
+			get = put
+		}
+		c.emitByte(get, slot, line)
+		return nil
+	}
+
+	index, err := c.resolveCaptured(name.Lexeme, line)
+	if err != nil {
+		return err
+	}
+	if index != -1 {
+		op := OpGetCaptured
+		if set {
+			op = OpSetCaptured
+		}
+		c.emitByte(op, index, line)
+		return nil
+	}
+
+	nameIdx, err := c.nameConstant(name.Lexeme, line)
+	if err != nil {
+		return err
+	}
+	op := OpGetGlobal
+	if set {
+		op = OpSetGlobal
+	}
+	c.emitByte(op, nameIdx, line)
+	return nil
+}
+
+// resolveCaptured busca name en las funciones que envuelven a esta, de
+// adentro hacia afuera, y devuelve su índice en Captured (agregándola si es
+// la primera vez que esta función la usa), o -1 si no es local de ninguna:
+// entonces es global. Una variable de dos o más funciones más afuera se
+// captura también en cada función intermedia, para que OpClosure la tenga a
+// mano al crear la closure interna.
+func (c *compiler) resolveCaptured(name string, line int) (int, error) {
+	if c.enclosing == nil {
+		return -1, nil
+	}
+	if slot := c.enclosing.resolveLocal(name); slot != -1 {
+		if !c.enclosing.locals[slot].captured {
+			return 0, fmt.Errorf("error interno del compilador: '%s' se captura pero no está en una celda", name)
+		}
+		return c.addCapture(true, slot, line)
+	}
+	index, err := c.enclosing.resolveCaptured(name, line)
+	if err != nil || index == -1 {
+		return index, err
+	}
+	return c.addCapture(false, index, line)
+}
+
+func (c *compiler) addCapture(fromLocal bool, index int, line int) (int, error) {
+	for i, cp := range c.captures {
+		if cp.fromLocal == fromLocal && cp.index == index {
+			return i, nil
+		}
+	}
+	if len(c.captures) >= maxCaptured {
+		return 0, &CompileError{
+			Line:    line,
+			Message: fmt.Sprintf("demasiadas variables capturadas en una función (el máximo es %d).", maxCaptured),
+		}
+	}
+	c.captures = append(c.captures, capture{fromLocal: fromLocal, index: index})
+	return len(c.captures) - 1, nil
+}
+
+func tooManyLocals(line int) error {
+	return &CompileError{
+		Line:    line,
+		Message: fmt.Sprintf("demasiadas variables locales en una misma función (el máximo es %d).", maxLocals),
+	}
 }
 
 func (c *compiler) beginScope() {

@@ -16,6 +16,10 @@ import (
 // Las columnas son: offset del opcode dentro de Code, línea del fuente (`|`
 // si es la misma que la del byte anterior), nombre de la instrucción y, si
 // lleva operando, el operando junto con el valor al que refiere.
+//
+// Después del listado van los de las funciones declaradas en el chunk (las
+// Function de su tabla de constantes), cada una bajo `== <fn nombre> ==`, y
+// así recursivamente con las que estén anidadas en ellas.
 func (c *Chunk) Disassemble(name string) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "== %s ==\n", name)
@@ -24,6 +28,11 @@ func (c *Chunk) Disassemble(name string) string {
 		text, offset = c.DisassembleInstruction(offset)
 		sb.WriteString(text)
 		sb.WriteByte('\n')
+	}
+	for _, constant := range c.Constants {
+		if fn, ok := constant.(*Function); ok {
+			sb.WriteString(fn.Chunk.Disassemble(fn.String()))
+		}
 	}
 	return sb.String()
 }
@@ -45,8 +54,11 @@ func (c *Chunk) DisassembleInstruction(offset int) (string, int) {
 	case OpConstant, OpDefineGlobal, OpGetGlobal, OpSetGlobal:
 		return c.constantInstruction(&sb, op, offset)
 
-	case OpGetLocal, OpSetLocal:
+	case OpGetLocal, OpSetLocal, OpBox, OpGetCell, OpSetCell, OpGetCaptured, OpSetCaptured, OpCall:
 		return c.byteInstruction(&sb, op, offset)
+
+	case OpClosure:
+		return c.closureInstruction(&sb, op, offset)
 
 	case OpJump, OpJumpIfFalse, OpJumpIfTrue:
 		return c.jumpInstruction(&sb, op, offset)
@@ -89,6 +101,34 @@ func (c *Chunk) loopInstruction(sb *strings.Builder, op OpCode, offset int) (str
 	target := offset + 3 - jump
 	fmt.Fprintf(sb, "%-16s %4d -> %d", op, offset, target)
 	return sb.String(), offset + 3
+}
+
+// closureInstruction formatea OpClosure: la función, como una constante, y
+// abajo una línea por cada variable que captura, con el lugar de donde la
+// saca (`local` si es un slot del frame, `captured` si es un Captured de la
+// closure en curso). Esas líneas no llevan offset porque no son instrucciones.
+func (c *Chunk) closureInstruction(sb *strings.Builder, op OpCode, offset int) (string, int) {
+	text, next := c.constantInstruction(sb, op, offset)
+	if next != offset+2 || int(c.Code[offset+1]) >= len(c.Constants) {
+		return text, next
+	}
+	fn, ok := c.Constants[c.Code[offset+1]].(*Function)
+	if !ok {
+		return text, next
+	}
+	for i := 0; i < fn.CapturedCount; i++ {
+		if next+1 >= len(c.Code) {
+			sb.WriteString("\n     |                     <falta el operando>")
+			return sb.String(), len(c.Code)
+		}
+		where := "captured"
+		if c.Code[next] == 1 {
+			where = "local"
+		}
+		fmt.Fprintf(sb, "\n     |                     %s %d", where, c.Code[next+1])
+		next += 2
+	}
+	return sb.String(), next
 }
 
 // byteInstruction formatea una instrucción cuyo operando es un byte directo

@@ -1,0 +1,16 @@
+// `i` la captura `count`: vive en una celda desde que se declara (OP_BOX) y
+// `count` la usa por su posición en Captured.
+// ops: OP_CLOSURE OP_DEFINE_GLOBAL OP_GET_GLOBAL OP_CALL OP_DEFINE_GLOBAL OP_GET_GLOBAL OP_CALL OP_PRINT OP_GET_GLOBAL OP_CALL OP_PRINT OP_RETURN OP_CONSTANT OP_BOX OP_CLOSURE OP_GET_LOCAL OP_RETURN OP_CONSTANT OP_RETURN OP_GET_CAPTURED OP_CONSTANT OP_ADD OP_SET_CAPTURED OP_POP OP_GET_CAPTURED OP_RETURN OP_CONSTANT OP_RETURN
+// expect: 1
+// expect: 2
+fun make_counter() {
+  var i = 0;
+  fun count() {
+    i = i + 1;
+    return i;
+  }
+  return count;
+}
+var c = make_counter();
+print c();
+print c();
