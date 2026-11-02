@@ -1,0 +1,15 @@
+class Rectangulo {
+  area() {
+    return this.ancho * this.alto;
+  }
+  perimetro() {
+    return 2 * (this.ancho + this.alto);
+  }
+}
+
+var r = Rectangulo();
+r.ancho = 5;
+r.alto = 10;
+
+print r.area();      // expect: 50
+print r.perimetro(); // expect: 30

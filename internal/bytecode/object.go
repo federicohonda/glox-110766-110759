@@ -37,3 +37,35 @@ func (c *Closure) String() string {
 type Cell struct {
 	Value Value
 }
+
+// Class es el valor de runtime de una clase: su nombre y su tabla de métodos.
+type Class struct {
+	Name    string
+	Methods map[string]*Closure
+}
+
+func (c *Class) String() string {
+	return c.Name
+}
+
+// Instance es una instancia concreta de una Class: referencia a su clase
+// y una tabla de campos (atributos) dinámicos.
+type Instance struct {
+	Class  *Class
+	Fields map[string]Value
+}
+
+func (i *Instance) String() string {
+	return fmt.Sprintf("%s instance", i.Class.Name)
+}
+
+// BoundMethod es un método ligado a su instancia receptora: cuando se invoca,
+// el receiver se coloca en el slot 0 ('this') del frame de la llamada.
+type BoundMethod struct {
+	Receiver *Instance
+	Method   *Closure
+}
+
+func (b *BoundMethod) String() string {
+	return b.Method.String()
+}

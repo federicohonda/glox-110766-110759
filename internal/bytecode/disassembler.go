@@ -51,8 +51,12 @@ func (c *Chunk) DisassembleInstruction(offset int) (string, int) {
 	}
 
 	switch op := OpCode(c.Code[offset]); op {
-	case OpConstant, OpDefineGlobal, OpGetGlobal, OpSetGlobal:
+	case OpConstant, OpDefineGlobal, OpGetGlobal, OpSetGlobal,
+		OpClass, OpMethod, OpGetProperty, OpSetProperty:
 		return c.constantInstruction(&sb, op, offset)
+
+	case OpInvoke:
+		return c.invokeInstruction(&sb, op, offset)
 
 	case OpGetLocal, OpSetLocal, OpBox, OpGetCell, OpSetCell, OpGetCaptured, OpSetCaptured, OpCall:
 		return c.byteInstruction(&sb, op, offset)
@@ -161,6 +165,22 @@ func (c *Chunk) constantInstruction(sb *strings.Builder, op OpCode, offset int) 
 		fmt.Fprintf(sb, "%-16s %4d '%s'", op, index, formatValue(c.Constants[index]))
 	}
 	return sb.String(), offset + 2
+}
+
+// invokeInstruction formatea OpInvoke: el método como constante y la cantidad de argumentos.
+func (c *Chunk) invokeInstruction(sb *strings.Builder, op OpCode, offset int) (string, int) {
+	if offset+2 >= len(c.Code) {
+		fmt.Fprintf(sb, "%-16s <faltan operandos>", op)
+		return sb.String(), len(c.Code)
+	}
+	constIdx := int(c.Code[offset+1])
+	argc := int(c.Code[offset+2])
+	if constIdx >= len(c.Constants) {
+		fmt.Fprintf(sb, "%-16s (%d args) %4d <constante inexistente>", op, argc, constIdx)
+	} else {
+		fmt.Fprintf(sb, "%-16s (%d args) %4d '%s'", op, argc, constIdx, formatValue(c.Constants[constIdx]))
+	}
+	return sb.String(), offset + 3
 }
 
 // formatValue muestra un valor de Lox igual que lo imprimiría `print`.

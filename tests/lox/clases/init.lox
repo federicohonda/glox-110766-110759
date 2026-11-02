@@ -1,0 +1,27 @@
+class Persona {
+  init(nombre, edad) {
+    this.nombre = nombre;
+    this.edad = edad;
+  }
+  presentar() {
+    print this.nombre + " tiene " + this.edad;
+  }
+}
+
+var p = Persona("Carlos", "30 años");
+p.presentar(); // expect: Carlos tiene 30 años
+
+class Temprano {
+  init(x) {
+    this.x = x;
+    if (x < 0) return;
+    this.y = 100;
+  }
+}
+
+var t1 = Temprano(-1);
+print t1.x; // expect: -1
+
+var t2 = Temprano(5);
+print t2.x; // expect: 5
+print t2.y; // expect: 100

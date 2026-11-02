@@ -1,0 +1,11 @@
+class Box {}
+
+var b = Box();
+b.color = "azul";
+b.peso = 42;
+
+print b.color; // expect: azul
+print b.peso;  // expect: 42
+
+b.color = "rojo";
+print b.color; // expect: rojo
