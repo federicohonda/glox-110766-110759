@@ -40,6 +40,14 @@ type callFrame struct {
 	base    int
 }
 
+// globalVar representa una variable global en la VM. Vive en un slot fijo
+// de vm.globalSlots, permitiendo acceso O(1) directo sin hashear strings ni
+// buscar en mapas en cada lectura o asignación.
+type globalVar struct {
+	value   Value
+	defined bool
+}
+
 // VM es una máquina virtual de pila: cada instrucción toma sus operandos del
 // tope de la pila y deja ahí su resultado.
 type VM struct {
@@ -48,13 +56,14 @@ type VM struct {
 	chunk *Chunk
 	// ip (instruction pointer) es el índice en chunk.Code del próximo byte a
 	// leer.
-	ip      int
-	base    int
-	closure *Closure
-	frames  []callFrame
-	stack   []Value
-	globals map[string]Value
-	out     io.Writer
+	ip          int
+	base        int
+	closure     *Closure
+	frames      []callFrame
+	stack       []Value
+	globalSlots []globalVar
+	globalNames map[string]int
+	out         io.Writer
 }
 
 // NewVM crea una VM con la pila vacía. Si no se indica un writer, la salida
@@ -65,9 +74,9 @@ func NewVM(out ...io.Writer) *VM {
 		w = out[0]
 	}
 	return &VM{
-		stack:   make([]Value, 0, stackInitialCapacity),
-		globals: make(map[string]Value),
-		out:     w,
+		stack:       make([]Value, 0, stackInitialCapacity),
+		globalNames: make(map[string]int),
+		out:         w,
 	}
 }
 
@@ -159,23 +168,30 @@ func (vm *VM) Run(chunk *Chunk) (Value, error) {
 			fmt.Fprintln(vm.out, formatValue(vm.pop()))
 
 		case OpDefineGlobal:
-			name := vm.chunk.Constants[vm.readByte()].(string)
-			vm.globals[name] = vm.pop()
+			slot := vm.globalSlot(vm.readByte())
+			g := &vm.globalSlots[slot]
+			g.value = vm.pop()
+			g.defined = true
 
 		case OpGetGlobal:
-			name := vm.chunk.Constants[vm.readByte()].(string)
-			val, ok := vm.globals[name]
-			if !ok {
+			k := vm.readByte()
+			slot := vm.globalSlot(k)
+			g := &vm.globalSlots[slot]
+			if !g.defined {
+				name := vm.chunk.Constants[k].(string)
 				return nil, vm.runtimeError(offset, name, "variable no definida '%s'.", name)
 			}
-			vm.push(val)
+			vm.push(g.value)
 
 		case OpSetGlobal:
-			name := vm.chunk.Constants[vm.readByte()].(string)
-			if _, ok := vm.globals[name]; !ok {
+			k := vm.readByte()
+			slot := vm.globalSlot(k)
+			g := &vm.globalSlots[slot]
+			if !g.defined {
+				name := vm.chunk.Constants[k].(string)
 				return nil, vm.runtimeError(offset, name, "variable no definida '%s'.", name)
 			}
-			vm.globals[name] = vm.peek(0)
+			g.value = vm.peek(0)
 
 		case OpGetLocal:
 			slot := vm.base + int(vm.readByte())
@@ -392,4 +408,38 @@ func (vm *VM) runtimeError(offset int, operator, format string, args ...any) err
 		Operator: operator,
 		Message:  fmt.Sprintf(format, args...),
 	}
+}
+
+// globalSlot devuelve el índice en vm.globalSlots para la constante en constIdx.
+// En el caso común (hit de caché), es una lectura directa sin llamadas ni búsquedas.
+func (vm *VM) globalSlot(constIdx byte) int {
+	c := vm.chunk
+	if c.globalVM == vm && int(constIdx) < len(c.globalSlots) {
+		if slot := c.globalSlots[constIdx]; slot >= 0 {
+			return int(slot)
+		}
+	}
+	return vm.resolveGlobalSlot(constIdx)
+}
+
+// resolveGlobalSlot resuelve el identificador global en la tabla de la VM y
+// actualiza la caché del chunk.
+func (vm *VM) resolveGlobalSlot(constIdx byte) int {
+	c := vm.chunk
+	if c.globalVM != vm || len(c.globalSlots) != len(c.Constants) {
+		c.globalVM = vm
+		c.globalSlots = make([]int32, len(c.Constants))
+		for i := range c.globalSlots {
+			c.globalSlots[i] = -1
+		}
+	}
+	name := c.Constants[constIdx].(string)
+	slotIdx, ok := vm.globalNames[name]
+	if !ok {
+		slotIdx = len(vm.globalSlots)
+		vm.globalNames[name] = slotIdx
+		vm.globalSlots = append(vm.globalSlots, globalVar{})
+	}
+	c.globalSlots[constIdx] = int32(slotIdx)
+	return slotIdx
 }
