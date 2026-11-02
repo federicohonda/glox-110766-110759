@@ -22,6 +22,15 @@ type functionType int
 const (
 	noFunction functionType = iota
 	insideFunction
+	insideMethod
+	insideInitializer
+)
+
+type classType int
+
+const (
+	noClass classType = iota
+	insideClass
 )
 
 // Resolver recorre el AST una única vez, antes de ejecutarlo, y calcula para
@@ -37,6 +46,7 @@ type Resolver struct {
 	scopes          []map[string]bool
 	locals          map[ast.Expr]int
 	currentFunction functionType
+	currentClass    classType
 	errors          []error
 }
 
@@ -97,11 +107,35 @@ func (r *Resolver) resolveStmt(stmt ast.Stmt) {
 		r.resolveExpr(s.Condition)
 		r.resolveStmt(s.Body)
 
+	case *ast.ClassDecl:
+		enclosingClass := r.currentClass
+		r.currentClass = insideClass
+
+		r.declare(s.Name)
+		r.define(s.Name)
+
+		r.beginScope()
+		r.scopes[len(r.scopes)-1]["this"] = true
+
+		for _, method := range s.Methods {
+			declaration := insideMethod
+			if method.Name.Lexeme == "init" {
+				declaration = insideInitializer
+			}
+			r.resolveFunctionType(method, declaration)
+		}
+
+		r.endScope()
+		r.currentClass = enclosingClass
+
 	case *ast.ReturnStmt:
 		if r.currentFunction == noFunction {
 			r.report(s.Keyword, "no se puede usar 'return' fuera de una función.")
 		}
 		if s.Value != nil {
+			if r.currentFunction == insideInitializer {
+				r.report(s.Keyword, "no se puede retornar un valor desde un inicializador.")
+			}
 			r.resolveExpr(s.Value)
 		}
 
@@ -144,6 +178,20 @@ func (r *Resolver) resolveExpr(expr ast.Expr) {
 			r.resolveExpr(arg)
 		}
 
+	case *ast.Get:
+		r.resolveExpr(e.Object)
+
+	case *ast.Set:
+		r.resolveExpr(e.Value)
+		r.resolveExpr(e.Object)
+
+	case *ast.This:
+		if r.currentClass == noClass {
+			r.report(e.Keyword, "no se puede usar 'this' fuera de una clase.")
+			return
+		}
+		r.resolveLocal(e, e.Keyword)
+
 	case *ast.Literal:
 
 	default:
@@ -156,8 +204,12 @@ func (r *Resolver) resolveExpr(expr ast.Expr) {
 // donde define los parámetros. Si no coincidieran, las distancias calculadas
 // quedarían corridas en uno.
 func (r *Resolver) resolveFunction(fn *ast.FunDecl) {
+	r.resolveFunctionType(fn, insideFunction)
+}
+
+func (r *Resolver) resolveFunctionType(fn *ast.FunDecl, fType functionType) {
 	enclosing := r.currentFunction
-	r.currentFunction = insideFunction
+	r.currentFunction = fType
 
 	r.beginScope()
 	for _, param := range fn.Params {

@@ -141,3 +141,23 @@ func (f *FunDecl) String() string {
 	sb.WriteString(")")
 	return sb.String()
 }
+
+// ClassDecl representa la declaración de una clase:
+// `class <name> { <methods>* }`.
+type ClassDecl struct {
+	Name    token.Token
+	Methods []*FunDecl
+}
+
+func (*ClassDecl) isStmt() {}
+
+func (c *ClassDecl) String() string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "(class %s", c.Name.Lexeme)
+	for _, m := range c.Methods {
+		sb.WriteString(" ")
+		sb.WriteString(m.String())
+	}
+	sb.WriteString(")")
+	return sb.String()
+}

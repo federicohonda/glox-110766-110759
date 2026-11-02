@@ -121,8 +121,11 @@ func (p *Parser) declaration() (stmt ast.Stmt, err error) {
 		}
 	}()
 
+	if p.match(token.CLASS) {
+		return p.classDeclaration(), nil
+	}
 	if p.match(token.FUN) {
-		return p.function(), nil
+		return p.function("función"), nil
 	}
 	if p.match(token.VAR) {
 		return p.varDeclaration(), nil
@@ -130,9 +133,22 @@ func (p *Parser) declaration() (stmt ast.Stmt, err error) {
 	return p.statement(), nil
 }
 
-func (p *Parser) function() ast.Stmt {
-	name := p.consume(token.IDENTIFIER, "se esperaba el nombre de la función.")
-	p.consume(token.LEFT_PAREN, "se esperaba '(' después del nombre de la función.")
+func (p *Parser) classDeclaration() ast.Stmt {
+	name := p.consume(token.IDENTIFIER, "se esperaba el nombre de la clase.")
+	p.consume(token.LEFT_BRACE, "se esperaba '{' antes del cuerpo de la clase.")
+
+	var methods []*ast.FunDecl
+	for !p.check(token.RIGHT_BRACE) && !p.isAtEnd() {
+		methods = append(methods, p.function("método"))
+	}
+
+	p.consume(token.RIGHT_BRACE, "se esperaba '}' después del cuerpo de la clase.")
+	return &ast.ClassDecl{Name: name, Methods: methods}
+}
+
+func (p *Parser) function(kind string) *ast.FunDecl {
+	name := p.consume(token.IDENTIFIER, fmt.Sprintf("se esperaba el nombre de la %s.", kind))
+	p.consume(token.LEFT_PAREN, fmt.Sprintf("se esperaba '(' después del nombre de la %s.", kind))
 
 	var params []token.Token
 	if !p.check(token.RIGHT_PAREN) {
@@ -148,7 +164,7 @@ func (p *Parser) function() ast.Stmt {
 	}
 	p.consume(token.RIGHT_PAREN, "se esperaba ')' después de los parámetros.")
 
-	p.consume(token.LEFT_BRACE, "se esperaba '{' antes del cuerpo de la función.")
+	p.consume(token.LEFT_BRACE, fmt.Sprintf("se esperaba '{' antes del cuerpo de la %s.", kind))
 	body := p.block()
 	return &ast.FunDecl{Name: name, Params: params, Body: body}
 }
@@ -322,6 +338,8 @@ func (p *Parser) assignment() ast.Expr {
 
 		if variable, ok := expr.(*ast.Variable); ok {
 			return &ast.Assign{Name: variable.Name, Value: value}
+		} else if get, ok := expr.(*ast.Get); ok {
+			return &ast.Set{Object: get.Object, Name: get.Name, Value: value}
 		}
 
 		panic(p.errorAt(equals, "destino de asignación inválido."))
@@ -405,8 +423,15 @@ func (p *Parser) unary() ast.Expr {
 
 func (p *Parser) call() ast.Expr {
 	expr := p.primary()
-	for p.match(token.LEFT_PAREN) {
-		expr = p.finishCall(expr)
+	for {
+		if p.match(token.LEFT_PAREN) {
+			expr = p.finishCall(expr)
+		} else if p.match(token.DOT) {
+			name := p.consume(token.IDENTIFIER, "se esperaba el nombre de la propiedad después de '.'.")
+			expr = &ast.Get{Object: expr, Name: name}
+		} else {
+			break
+		}
 	}
 	return expr
 }
@@ -438,6 +463,8 @@ func (p *Parser) primary() ast.Expr {
 		return &ast.Literal{Value: nil, Line: p.previous().Line}
 	case p.match(token.NUMBER, token.STRING):
 		return &ast.Literal{Value: p.previous().Literal, Line: p.previous().Line}
+	case p.match(token.THIS):
+		return &ast.This{Keyword: p.previous()}
 	case p.match(token.IDENTIFIER):
 		return &ast.Variable{Name: p.previous()}
 	case p.match(token.LEFT_PAREN):
@@ -457,7 +484,7 @@ func (p *Parser) synchronize() {
 		}
 
 		switch p.peek().Type {
-		case token.VAR, token.PRINT, token.IF, token.WHILE, token.FOR, token.FUN, token.RETURN:
+		case token.CLASS, token.VAR, token.PRINT, token.IF, token.WHILE, token.FOR, token.FUN, token.RETURN:
 			return
 		}
 

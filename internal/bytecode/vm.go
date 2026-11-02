@@ -40,6 +40,14 @@ type callFrame struct {
 	base    int
 }
 
+// globalVar representa una variable global en la VM. Vive en un slot fijo
+// de vm.globalSlots, permitiendo acceso O(1) directo sin hashear strings ni
+// buscar en mapas en cada lectura o asignación.
+type globalVar struct {
+	value   Value
+	defined bool
+}
+
 // VM es una máquina virtual de pila: cada instrucción toma sus operandos del
 // tope de la pila y deja ahí su resultado.
 type VM struct {
@@ -48,13 +56,14 @@ type VM struct {
 	chunk *Chunk
 	// ip (instruction pointer) es el índice en chunk.Code del próximo byte a
 	// leer.
-	ip      int
-	base    int
-	closure *Closure
-	frames  []callFrame
-	stack   []Value
-	globals map[string]Value
-	out     io.Writer
+	ip          int
+	base        int
+	closure     *Closure
+	frames      []callFrame
+	stack       []Value
+	globalSlots []globalVar
+	globalNames map[string]int
+	out         io.Writer
 }
 
 // NewVM crea una VM con la pila vacía. Si no se indica un writer, la salida
@@ -65,9 +74,9 @@ func NewVM(out ...io.Writer) *VM {
 		w = out[0]
 	}
 	return &VM{
-		stack:   make([]Value, 0, stackInitialCapacity),
-		globals: make(map[string]Value),
-		out:     w,
+		stack:       make([]Value, 0, stackInitialCapacity),
+		globalNames: make(map[string]int),
+		out:         w,
 	}
 }
 
@@ -159,23 +168,30 @@ func (vm *VM) Run(chunk *Chunk) (Value, error) {
 			fmt.Fprintln(vm.out, formatValue(vm.pop()))
 
 		case OpDefineGlobal:
-			name := vm.chunk.Constants[vm.readByte()].(string)
-			vm.globals[name] = vm.pop()
+			slot := vm.globalSlot(vm.readByte())
+			g := &vm.globalSlots[slot]
+			g.value = vm.pop()
+			g.defined = true
 
 		case OpGetGlobal:
-			name := vm.chunk.Constants[vm.readByte()].(string)
-			val, ok := vm.globals[name]
-			if !ok {
+			k := vm.readByte()
+			slot := vm.globalSlot(k)
+			g := &vm.globalSlots[slot]
+			if !g.defined {
+				name := vm.chunk.Constants[k].(string)
 				return nil, vm.runtimeError(offset, name, "variable no definida '%s'.", name)
 			}
-			vm.push(val)
+			vm.push(g.value)
 
 		case OpSetGlobal:
-			name := vm.chunk.Constants[vm.readByte()].(string)
-			if _, ok := vm.globals[name]; !ok {
+			k := vm.readByte()
+			slot := vm.globalSlot(k)
+			g := &vm.globalSlots[slot]
+			if !g.defined {
+				name := vm.chunk.Constants[k].(string)
 				return nil, vm.runtimeError(offset, name, "variable no definida '%s'.", name)
 			}
-			vm.globals[name] = vm.peek(0)
+			g.value = vm.peek(0)
 
 		case OpGetLocal:
 			slot := vm.base + int(vm.readByte())
@@ -292,6 +308,57 @@ func (vm *VM) Run(chunk *Chunk) (Value, error) {
 			vm.closure, vm.chunk, vm.ip, vm.base = caller.closure, caller.closure.Function.Chunk, caller.ip, caller.base
 			vm.push(result)
 
+		case OpClass:
+			nameConst := vm.readByte()
+			name := vm.chunk.Constants[nameConst].(string)
+			class := &Class{Name: name, Methods: make(map[string]*Closure)}
+			vm.push(class)
+
+		case OpMethod:
+			nameConst := vm.readByte()
+			name := vm.chunk.Constants[nameConst].(string)
+			method := vm.pop().(*Closure)
+			class := vm.peek(0).(*Class)
+			class.Methods[name] = method
+
+		case OpGetProperty:
+			nameConst := vm.readByte()
+			name := vm.chunk.Constants[nameConst].(string)
+			receiver := vm.pop()
+			instance, ok := receiver.(*Instance)
+			if !ok {
+				return nil, vm.runtimeError(offset, ".", "solo las instancias tienen propiedades.")
+			}
+			if val, ok := instance.Fields[name]; ok {
+				vm.push(val)
+				break
+			}
+			if method, ok := instance.Class.Methods[name]; ok {
+				vm.push(&BoundMethod{Receiver: instance, Method: method})
+				break
+			}
+			return nil, vm.runtimeError(offset, name, "propiedad no definida '%s'.", name)
+
+		case OpSetProperty:
+			nameConst := vm.readByte()
+			name := vm.chunk.Constants[nameConst].(string)
+			val := vm.pop()
+			receiver := vm.pop()
+			instance, ok := receiver.(*Instance)
+			if !ok {
+				return nil, vm.runtimeError(offset, ".", "solo las instancias tienen propiedades.")
+			}
+			instance.Fields[name] = val
+			vm.push(val)
+
+		case OpInvoke:
+			nameConst := vm.readByte()
+			argc := int(vm.readByte())
+			name := vm.chunk.Constants[nameConst].(string)
+			if err := vm.invoke(offset, name, argc); err != nil {
+				return nil, err
+			}
+
 		default:
 			return nil, fmt.Errorf("la VM encontró un opcode desconocido (%d) en el offset %d", byte(op), offset)
 		}
@@ -305,10 +372,31 @@ func (vm *VM) Run(chunk *Chunk) (Value, error) {
 // pasan a ser los primeros slots del frame nuevo.
 func (vm *VM) call(offset, argc int) error {
 	callee := vm.peek(argc)
-	closure, ok := callee.(*Closure)
-	if !ok {
+	switch c := callee.(type) {
+	case *BoundMethod:
+		vm.stack[len(vm.stack)-argc-1] = c.Receiver
+		return vm.callClosure(offset, c.Method, argc)
+
+	case *Class:
+		instance := &Instance{Class: c, Fields: make(map[string]Value)}
+		vm.stack[len(vm.stack)-argc-1] = instance
+		if init, ok := c.Methods["init"]; ok {
+			return vm.callClosure(offset, init, argc)
+		}
+		if argc != 0 {
+			return vm.runtimeError(offset, ")", "se esperaban 0 argumentos pero se recibieron %d.", argc)
+		}
+		return nil
+
+	case *Closure:
+		return vm.callClosure(offset, c, argc)
+
+	default:
 		return vm.runtimeError(offset, ")", "solo se pueden llamar funciones, se obtuvo: %v", formatValue(callee))
 	}
+}
+
+func (vm *VM) callClosure(offset int, closure *Closure, argc int) error {
 	if argc != closure.Function.Arity {
 		return vm.runtimeError(offset, ")", "se esperaban %d argumentos pero se recibieron %d.", closure.Function.Arity, argc)
 	}
@@ -320,6 +408,23 @@ func (vm *VM) call(offset, argc int) error {
 	vm.frames = append(vm.frames, callFrame{closure: closure, base: base})
 	vm.closure, vm.chunk, vm.ip, vm.base = closure, closure.Function.Chunk, 0, base
 	return nil
+}
+
+func (vm *VM) invoke(offset int, name string, argc int) error {
+	receiver := vm.peek(argc)
+	instance, ok := receiver.(*Instance)
+	if !ok {
+		return vm.runtimeError(offset, ".", "solo las instancias tienen métodos.")
+	}
+	if val, ok := instance.Fields[name]; ok {
+		vm.stack[len(vm.stack)-argc-1] = val
+		return vm.call(offset, argc)
+	}
+	method, ok := instance.Class.Methods[name]
+	if !ok {
+		return vm.runtimeError(offset, name, "propiedad no definida '%s'.", name)
+	}
+	return vm.callClosure(offset, method, argc)
 }
 
 func (vm *VM) readByte() byte {
@@ -392,4 +497,38 @@ func (vm *VM) runtimeError(offset int, operator, format string, args ...any) err
 		Operator: operator,
 		Message:  fmt.Sprintf(format, args...),
 	}
+}
+
+// globalSlot devuelve el índice en vm.globalSlots para la constante en constIdx.
+// En el caso común (hit de caché), es una lectura directa sin llamadas ni búsquedas.
+func (vm *VM) globalSlot(constIdx byte) int {
+	c := vm.chunk
+	if c.globalVM == vm && int(constIdx) < len(c.globalSlots) {
+		if slot := c.globalSlots[constIdx]; slot >= 0 {
+			return int(slot)
+		}
+	}
+	return vm.resolveGlobalSlot(constIdx)
+}
+
+// resolveGlobalSlot resuelve el identificador global en la tabla de la VM y
+// actualiza la caché del chunk.
+func (vm *VM) resolveGlobalSlot(constIdx byte) int {
+	c := vm.chunk
+	if c.globalVM != vm || len(c.globalSlots) != len(c.Constants) {
+		c.globalVM = vm
+		c.globalSlots = make([]int32, len(c.Constants))
+		for i := range c.globalSlots {
+			c.globalSlots[i] = -1
+		}
+	}
+	name := c.Constants[constIdx].(string)
+	slotIdx, ok := vm.globalNames[name]
+	if !ok {
+		slotIdx = len(vm.globalSlots)
+		vm.globalNames[name] = slotIdx
+		vm.globalSlots = append(vm.globalSlots, globalVar{})
+	}
+	c.globalSlots[constIdx] = int32(slotIdx)
+	return slotIdx
 }

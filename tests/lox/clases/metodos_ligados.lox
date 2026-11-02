@@ -1,0 +1,16 @@
+class Contador {
+  init() {
+    this.cuenta = 0;
+  }
+  inc() {
+    this.cuenta = this.cuenta + 1;
+    return this.cuenta;
+  }
+}
+
+var c = Contador();
+var metodo = c.inc;
+
+print metodo(); // expect: 1
+print metodo(); // expect: 2
+print c.cuenta; // expect: 2

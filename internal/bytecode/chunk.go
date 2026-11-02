@@ -20,6 +20,12 @@ type Chunk struct {
 	Code      []byte
 	Constants []Value
 	Lines     []int
+
+	// globalSlots cachea, para cada índice de Constants, el slot en
+	// vm.globalSlots que corresponde a ese identificador global (o -1 si aún
+	// no fue resuelto). Evita buscar por string en un map en cada acceso.
+	globalSlots []int32
+	globalVM    *VM
 }
 
 // Write agrega un byte (un opcode o un operando) al final del chunk, anotando

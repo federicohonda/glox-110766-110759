@@ -66,6 +66,13 @@ func distances(t *testing.T, source string) map[string][]int {
 			for _, a := range e.Arguments {
 				visitExpr(a)
 			}
+		case *ast.Get:
+			visitExpr(e.Object)
+		case *ast.Set:
+			visitExpr(e.Object)
+			visitExpr(e.Value)
+		case *ast.This:
+			record(e, e.Keyword.Lexeme)
 		}
 	}
 	visitStmt = func(stmt ast.Stmt) {
@@ -81,6 +88,12 @@ func distances(t *testing.T, source string) map[string][]int {
 		case *ast.FunDecl:
 			for _, inner := range s.Body {
 				visitStmt(inner)
+			}
+		case *ast.ClassDecl:
+			for _, m := range s.Methods {
+				for _, inner := range m.Body {
+					visitStmt(inner)
+				}
 			}
 		case *ast.ExpressionStmt:
 			visitExpr(s.Expression)
@@ -148,6 +161,11 @@ func TestResolveDistances(t *testing.T) {
 			source: "fun fib(n) { if (n <= 1) return n; return fib(n - 1); }",
 			want:   map[string][]int{"n": {0, 0, 0}, "fib": {-1}},
 		},
+		{
+			name:   "this en método de clase está en el scope circundante",
+			source: "class Person { say() { print this; } }",
+			want:   map[string][]int{"this": {1}},
+		},
 	}
 
 	for _, c := range cases {
@@ -194,6 +212,9 @@ func TestResolveErrors(t *testing.T) {
 		{"redeclarar en el mismo bloque", "{ var a = 1; var a = 2; }", "ya existe una variable con este nombre en este scope"},
 		{"parámetro duplicado", "fun f(a, a) {}", "ya existe una variable con este nombre en este scope"},
 		{"redeclarar un parámetro en el cuerpo", "fun f(a) { var a = 1; }", "ya existe una variable con este nombre en este scope"},
+		{"this fuera de una clase", "print this;", "no se puede usar 'this' fuera de una clase"},
+		{"this en función fuera de clase", "fun f() { print this; }", "no se puede usar 'this' fuera de una clase"},
+		{"retornar valor en init", "class Foo { init() { return 1; } }", "no se puede retornar un valor desde un inicializador"},
 	}
 
 	for _, c := range cases {
@@ -219,6 +240,9 @@ func TestResolveAllowedCases(t *testing.T) {
 		{"shadowing en un bloque interno está permitido", "{ var a = 1; { var a = 2; print a; } }"},
 		{"return dentro de una función anidada", "fun f() { fun g() { return 1; } return g(); }"},
 		{"una función local puede ser recursiva", "{ fun f(n) { if (n > 0) f(n - 1); } }"},
+		{"return vacío en init", "class Foo { init() { return; } }"},
+		{"uso válido de this en método", "class Foo { bar() { print this; } }"},
+		{"return con valor en método regular", "class Foo { bar() { return 1; } }"},
 	}
 
 	for _, c := range cases {

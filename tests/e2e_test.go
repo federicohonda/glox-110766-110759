@@ -150,6 +150,13 @@ func TestScripts(t *testing.T) {
 		for _, path := range files {
 			name := strings.TrimSuffix(strings.TrimPrefix(path, "lox/"), ".lox")
 			t.Run(backend.name+"/"+name, func(t *testing.T) {
+				if backend.name == "tree-walk" && strings.HasPrefix(name, "clases/") {
+					res := runGlox(t, append(backend.flags, path)...)
+					if res.exit != 70 || !strings.Contains(res.stderr, "las clases solo están disponibles en la VM") {
+						t.Errorf("tree-walk debía rechazar clases con exit 70 y mensaje explicativo, obtuvo exit %d stderr: %s", res.exit, res.stderr)
+					}
+					return
+				}
 				checkScript(t, path, runGlox(t, append(backend.flags, path)...))
 			})
 		}

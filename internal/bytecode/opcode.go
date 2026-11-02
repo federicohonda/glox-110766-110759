@@ -82,6 +82,22 @@ const (
 	// en curso y deja el valor donde estaba el callee. En el chunk del
 	// programa termina la ejecución.
 	OpReturn
+
+	// Clases y POO:
+	// OpClass crea una nueva Class y la apila. Operando: índice constante del nombre.
+	OpClass
+	// OpMethod agrega el método (tope de pila) a la clase (debajo del método).
+	// Operando: índice constante del nombre.
+	OpMethod
+	// OpGetProperty desapila una instancia y busca el campo o método.
+	// Operando: índice constante del nombre.
+	OpGetProperty
+	// OpSetProperty asigna un campo a una instancia. Pila: [receiver, value].
+	// Operando: índice constante del nombre.
+	OpSetProperty
+	// OpInvoke optimiza la invocación de método combinando búsqueda y llamada.
+	// Operandos: índice constante del nombre (1 byte) y argc (1 byte).
+	OpInvoke
 )
 
 var opCodeNames = [...]string{
@@ -117,6 +133,11 @@ var opCodeNames = [...]string{
 	OpJumpIfTrue:   "OP_JUMP_IF_TRUE",
 	OpLoop:         "OP_LOOP",
 	OpReturn:       "OP_RETURN",
+	OpClass:        "OP_CLASS",
+	OpMethod:       "OP_METHOD",
+	OpGetProperty:  "OP_GET_PROPERTY",
+	OpSetProperty:  "OP_SET_PROPERTY",
+	OpInvoke:       "OP_INVOKE",
 }
 
 func (op OpCode) String() string {

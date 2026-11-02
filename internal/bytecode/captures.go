@@ -108,6 +108,20 @@ func (f *captureFinder) stmt(stmt ast.Stmt) {
 		f.stmts(s.Body)
 		f.endScope()
 		f.function--
+
+	case *ast.ClassDecl:
+		f.declare(s.Name.Lexeme, s)
+		for _, method := range s.Methods {
+			f.function++
+			f.beginScope()
+			f.declare("this", method)
+			for i := range method.Params {
+				f.declare(method.Params[i].Lexeme, &method.Params[i])
+			}
+			f.stmts(method.Body)
+			f.endScope()
+			f.function--
+		}
 	}
 }
 
@@ -133,5 +147,12 @@ func (f *captureFinder) expr(expr ast.Expr) {
 		for _, arg := range e.Arguments {
 			f.expr(arg)
 		}
+	case *ast.This:
+		f.use("this")
+	case *ast.Get:
+		f.expr(e.Object)
+	case *ast.Set:
+		f.expr(e.Object)
+		f.expr(e.Value)
 	}
 }

@@ -1,0 +1,15 @@
+class Fabrica {
+  init(factor) {
+    this.factor = factor;
+  }
+  generarMultiplicador() {
+    fun mult(n) {
+      return this.factor * n;
+    }
+    return mult;
+  }
+}
+
+var f = Fabrica(5);
+var duplicar = f.generarMultiplicador();
+print duplicar(10); // expect: 50

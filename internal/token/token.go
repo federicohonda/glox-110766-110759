@@ -40,6 +40,9 @@ const (
 	TRUE
 	VAR
 	WHILE
+	DOT
+	CLASS
+	THIS
 	EOF
 )
 
@@ -80,6 +83,9 @@ var tokenTypeNames = [...]string{
 	"TRUE",
 	"VAR",
 	"WHILE",
+	"DOT",
+	"CLASS",
+	"THIS",
 	"EOF",
 }
 

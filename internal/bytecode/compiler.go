@@ -66,11 +66,21 @@ type capture struct {
 	index     int
 }
 
+type funcKind int
+
+const (
+	kindScript funcKind = iota
+	kindFunction
+	kindMethod
+	kindInitializer
+)
+
 // compiler recorre el AST y va escribiendo el bytecode en su chunk. Hay uno
 // por función que se está compilando, encadenados por enclosing hasta el del
 // programa.
 type compiler struct {
 	enclosing *compiler
+	kind      funcKind
 	chunk     *Chunk
 	// captures son las variables de funciones externas que usa esta función,
 	// en el orden en que quedan en Closure.Captured.
@@ -233,7 +243,7 @@ func (c *compiler) statement(stmt ast.Stmt) error {
 	case *ast.FunDecl:
 		line := s.Name.Line
 		if c.scopeDepth == 0 {
-			if err := c.function(s); err != nil {
+			if err := c.function(s, kindFunction); err != nil {
 				return err
 			}
 			nameIdx, err := c.nameConstant(s.Name.Lexeme, line)
@@ -253,7 +263,7 @@ func (c *compiler) statement(stmt ast.Stmt) error {
 		captured := c.captured[s]
 		c.locals = append(c.locals, local{name: s.Name.Lexeme, depth: c.scopeDepth, captured: captured})
 		if !captured {
-			return c.function(s)
+			return c.function(s, kindFunction)
 		}
 		// Si se captura (a sí misma, o desde otra función anidada), la celda
 		// tiene que existir antes de crear la closure: se reserva el slot con
@@ -263,18 +273,27 @@ func (c *compiler) statement(stmt ast.Stmt) error {
 			return err
 		}
 		c.emitByte(OpBox, slot, line)
-		if err := c.function(s); err != nil {
+		if err := c.function(s, kindFunction); err != nil {
 			return err
 		}
 		c.emitByte(OpSetCell, slot, line)
 		c.emit(OpPop, line)
 		return nil
 
+	case *ast.ClassDecl:
+		return c.classDeclaration(s)
+
 	case *ast.ReturnStmt:
 		line := s.Keyword.Line
 		if s.Value != nil {
 			if err := c.expression(s.Value); err != nil {
 				return err
+			}
+		} else if c.kind == kindInitializer {
+			if c.locals[0].captured {
+				c.emitByte(OpGetCell, 0, line)
+			} else {
+				c.emitByte(OpGetLocal, 0, line)
 			}
 		} else if err := c.constant(nil, line); err != nil {
 			return err
@@ -305,6 +324,8 @@ func stmtLine(stmt ast.Stmt) int {
 			return stmtLine(s.Statements[0])
 		}
 	case *ast.FunDecl:
+		return s.Name.Line
+	case *ast.ClassDecl:
 		return s.Name.Line
 	case *ast.ReturnStmt:
 		return s.Keyword.Line
@@ -416,6 +437,25 @@ func (c *compiler) expression(expr ast.Expr) error {
 		return c.variable(e.Name, true)
 
 	case *ast.Call:
+		line := e.Paren.Line
+		if get, ok := e.Callee.(*ast.Get); ok {
+			if err := c.expression(get.Object); err != nil {
+				return err
+			}
+			for _, arg := range e.Arguments {
+				if err := c.expression(arg); err != nil {
+					return err
+				}
+			}
+			nameIdx, err := c.nameConstant(get.Name.Lexeme, line)
+			if err != nil {
+				return err
+			}
+			c.emit(OpInvoke, line)
+			c.chunk.Write(byte(nameIdx), line)
+			c.chunk.Write(byte(len(e.Arguments)), line)
+			return nil
+		}
 		// Regla de oro: el callee y los argumentos se evalúan, en orden, antes
 		// de chequear si el valor es invocable o si la aridad coincide.
 		if err := c.expression(e.Callee); err != nil {
@@ -429,6 +469,36 @@ func (c *compiler) expression(expr ast.Expr) error {
 		// El parser ya rechaza más de 255 argumentos, así que entran en el
 		// byte del operando.
 		c.emitByte(OpCall, len(e.Arguments), e.Paren.Line)
+		return nil
+
+	case *ast.This:
+		return c.variable(e.Keyword, false)
+
+	case *ast.Get:
+		line := e.Name.Line
+		if err := c.expression(e.Object); err != nil {
+			return err
+		}
+		nameIdx, err := c.nameConstant(e.Name.Lexeme, line)
+		if err != nil {
+			return err
+		}
+		c.emitByte(OpGetProperty, nameIdx, line)
+		return nil
+
+	case *ast.Set:
+		line := e.Name.Line
+		if err := c.expression(e.Object); err != nil {
+			return err
+		}
+		if err := c.expression(e.Value); err != nil {
+			return err
+		}
+		nameIdx, err := c.nameConstant(e.Name.Lexeme, line)
+		if err != nil {
+			return err
+		}
+		c.emitByte(OpSetProperty, nameIdx, line)
 		return nil
 
 	default:
@@ -479,21 +549,79 @@ func (c *compiler) emitByte(op OpCode, operand int, line int) {
 	c.chunk.Write(byte(operand), line)
 }
 
+// classDeclaration compila la declaración de una clase: emite OpClass,
+// define su variable en globals o locals, apila la clase para que OpMethod
+// pueda asociar cada método, y finalmente desapila la referencia temporal.
+func (c *compiler) classDeclaration(decl *ast.ClassDecl) error {
+	line := decl.Name.Line
+	nameIdx, err := c.nameConstant(decl.Name.Lexeme, line)
+	if err != nil {
+		return err
+	}
+	c.emitByte(OpClass, nameIdx, line)
+
+	if c.scopeDepth > 0 {
+		if len(c.locals) >= maxLocals {
+			return tooManyLocals(line)
+		}
+		slot := len(c.locals)
+		captured := c.captured[decl]
+		c.locals = append(c.locals, local{name: decl.Name.Lexeme, depth: c.scopeDepth, captured: captured})
+		if captured {
+			c.emitByte(OpBox, slot, line)
+		}
+	} else {
+		c.emitByte(OpDefineGlobal, nameIdx, line)
+	}
+
+	// Cargar la clase en la cima del stack para asociarle los métodos:
+	if err := c.variable(decl.Name, false); err != nil {
+		return err
+	}
+
+	for _, method := range decl.Methods {
+		kind := kindMethod
+		if method.Name.Lexeme == "init" {
+			kind = kindInitializer
+		}
+		if err := c.function(method, kind); err != nil {
+			return err
+		}
+		methodNameIdx, err := c.nameConstant(method.Name.Lexeme, method.Name.Line)
+		if err != nil {
+			return err
+		}
+		c.emitByte(OpMethod, methodNameIdx, method.Name.Line)
+	}
+
+	// Desapilar la clase que se cargó para adjuntar los métodos:
+	c.emit(OpPop, line)
+	return nil
+}
+
 // function compila la declaración a un chunk propio, con un compilador nuevo
 // encadenado a c, y emite en c el OpClosure que crea la closure en runtime.
-func (c *compiler) function(decl *ast.FunDecl) error {
+func (c *compiler) function(decl *ast.FunDecl, kind funcKind) error {
 	line := decl.Name.Line
 	fn := &Function{Name: decl.Name.Lexeme, Arity: len(decl.Params), Chunk: &Chunk{}}
+	slot0Name := ""
+	slot0Captured := false
+	if kind == kindMethod || kind == kindInitializer {
+		slot0Name = "this"
+		slot0Captured = c.captured[decl]
+	}
 	fc := &compiler{
-		enclosing: c,
-		chunk:     fn.Chunk,
-		captured:  c.captured,
-		globals:   make(map[string]int),
-		// El slot 0 del frame es el callee: queda reservado con un nombre que
-		// ninguna variable puede tener. Los parámetros van del 1 en adelante.
-		locals:     []local{{name: ""}},
+		enclosing:  c,
+		kind:       kind,
+		chunk:      fn.Chunk,
+		captured:   c.captured,
+		globals:    make(map[string]int),
+		locals:     []local{{name: slot0Name, depth: 0, captured: slot0Captured}},
 		scopeDepth: 1,
 		line:       line,
+	}
+	if slot0Captured {
+		fc.emitByte(OpBox, 0, line)
 	}
 	for i := range decl.Params {
 		slot := len(fc.locals)
@@ -510,9 +638,17 @@ func (c *compiler) function(decl *ast.FunDecl) error {
 			return err
 		}
 	}
-	// Una función que termina sin `return` devuelve nil.
-	if err := fc.constant(nil, fc.line); err != nil {
-		return err
+	if kind == kindInitializer {
+		if slot0Captured {
+			fc.emitByte(OpGetCell, 0, fc.line)
+		} else {
+			fc.emitByte(OpGetLocal, 0, fc.line)
+		}
+	} else {
+		// Una función que termina sin `return` devuelve nil.
+		if err := fc.constant(nil, fc.line); err != nil {
+			return err
+		}
 	}
 	fc.emit(OpReturn, fc.line)
 	fn.CapturedCount = len(fc.captures)
