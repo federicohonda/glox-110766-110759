@@ -10,6 +10,7 @@ import (
 // keywords mapea las palabras reservadas del lenguaje a su respectivo TokenType.
 var keywords = map[string]token.TokenType{
 	"and":    token.AND,
+	"class":  token.CLASS,
 	"else":   token.ELSE,
 	"false":  token.FALSE,
 	"for":    token.FOR,
@@ -19,6 +20,7 @@ var keywords = map[string]token.TokenType{
 	"or":     token.OR,
 	"print":  token.PRINT,
 	"return": token.RETURN,
+	"this":   token.THIS,
 	"true":   token.TRUE,
 	"var":    token.VAR,
 	"while":  token.WHILE,
@@ -95,6 +97,8 @@ func (s *Scanner) scanToken() {
 		s.addToken(token.RIGHT_BRACE)
 	case ',':
 		s.addToken(token.COMMA)
+	case '.':
+		s.addToken(token.DOT)
 	case '-':
 		s.addToken(token.MINUS)
 	case '+':

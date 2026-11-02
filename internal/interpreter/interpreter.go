@@ -143,6 +143,9 @@ func (i *Interpreter) Execute(stmt ast.Stmt) error {
 		}
 		return &returnSignal{value: val}
 
+	case *ast.ClassDecl:
+		return fmt.Errorf("las clases solo están disponibles en la VM")
+
 	default:
 		return fmt.Errorf("tipo de sentencia no soportado: %T", stmt)
 	}
@@ -382,6 +385,9 @@ func (i *Interpreter) Evaluate(expr ast.Expr) (Value, error) {
 				Message: fmt.Sprintf("operador binario desconocido: %s", e.Operator.Lexeme),
 			}
 		}
+
+	case *ast.Get, *ast.Set, *ast.This:
+		return nil, fmt.Errorf("las clases solo están disponibles en la VM")
 
 	default:
 		return nil, fmt.Errorf("tipo de expresión no soportado: %T", expr)

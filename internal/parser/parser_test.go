@@ -394,3 +394,79 @@ func TestParseExpressionRejectsTrailingTokens(t *testing.T) {
 		})
 	}
 }
+
+func TestClassDeclarationParsing(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{
+			name:   "clase vacía",
+			source: "class Devio {}",
+			want:   "(class Devio)",
+		},
+		{
+			name:   "clase con método",
+			source: "class Breakfast { cook() { print 1; } }",
+			want:   "(class Breakfast (fun cook () (print 1)))",
+		},
+		{
+			name:   "clase con múltiples métodos y parámetros",
+			source: "class Point { init(x, y) { this.x = x; } dist() { return this.x; } }",
+			want:   "(class Point (fun init (x y) (expr (= (. this x) x))) (fun dist () (return (. this x))))",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseProgram(t, tc.source)
+			if got != tc.want {
+				t.Errorf("parseProgram() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPropertyAndThisParsing(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{
+			name:   "acceso de propiedad",
+			source: "egg.scramble",
+			want:   "(. egg scramble)",
+		},
+		{
+			name:   "acceso encadenado de propiedades",
+			source: "box.item.weight",
+			want:   "(. (. box item) weight)",
+		},
+		{
+			name:   "asignación de propiedad",
+			source: "point.x = 10",
+			want:   "(= (. point x) 10)",
+		},
+		{
+			name:   "asignación encadenada de propiedad",
+			source: "a.b.c = 42",
+			want:   "(= (. (. a b) c) 42)",
+		},
+		{
+			name:   "uso de this",
+			source: "this.foo = this.bar",
+			want:   "(= (. this foo) (. this bar))",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseTree(t, tc.source)
+			if got != tc.want {
+				t.Errorf("parseTree() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

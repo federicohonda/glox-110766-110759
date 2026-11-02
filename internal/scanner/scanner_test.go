@@ -7,7 +7,7 @@ import (
 )
 
 func TestSingleCharacterTokens(t *testing.T) {
-	input := "(){},-+;*%"
+	input := "(){},-+;*%. "
 	sc := New(input)
 	tokens, errs := sc.Scan()
 
@@ -26,6 +26,7 @@ func TestSingleCharacterTokens(t *testing.T) {
 		token.SEMICOLON,
 		token.STAR,
 		token.PERCENT,
+		token.DOT,
 		token.EOF,
 	}
 
@@ -136,7 +137,7 @@ func TestMultilineString(t *testing.T) {
 }
 
 func TestKeywordsAndIdentifiers(t *testing.T) {
-	input := "and else false for fun if nil or print return true var while miVariable _otro123"
+	input := "and class else false for fun if nil or print return this true var while miVariable _otro123"
 	sc := New(input)
 	tokens, errs := sc.Scan()
 
@@ -149,6 +150,7 @@ func TestKeywordsAndIdentifiers(t *testing.T) {
 		lexeme string
 	}{
 		{token.AND, "and"},
+		{token.CLASS, "class"},
 		{token.ELSE, "else"},
 		{token.FALSE, "false"},
 		{token.FOR, "for"},
@@ -158,6 +160,7 @@ func TestKeywordsAndIdentifiers(t *testing.T) {
 		{token.OR, "or"},
 		{token.PRINT, "print"},
 		{token.RETURN, "return"},
+		{token.THIS, "this"},
 		{token.TRUE, "true"},
 		{token.VAR, "var"},
 		{token.WHILE, "while"},
