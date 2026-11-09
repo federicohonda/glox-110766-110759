@@ -1,0 +1,235 @@
+// Resumen de gastos del mes
+//
+// Toma los gastos de un mes, los agrupa por categoría, controla el presupuesto
+// de cada una y proyecta cuánto costaría el mismo mes con inflación.
+//
+// La primera versión de este programa (entrega parcial) armaba las listas y
+// los registros con closures, porque Lox no tenía ninguna de las dos cosas.
+// Esta usa clases y listas, e imprime exactamente el mismo reporte.
+//
+// Uso: ./glox examples/gastos.lox
+
+// ---------------------------------------------------------------------------
+// Números a texto
+// ---------------------------------------------------------------------------
+
+var DIGITOS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+
+// Entero no negativo a texto, con punto como separador de miles.
+// `posicion` cuenta cuántos dígitos ya quedaron a la derecha.
+fun digitosDesde(n, posicion) {
+    if (n < 10) return DIGITOS[n];
+    var ultimo = n % 10;
+    var separador = "";
+    if (posicion % 3 == 2) separador = ".";
+    return digitosDesde((n - ultimo) / 10, posicion + 1) + separador + DIGITOS[ultimo];
+}
+
+fun enteroATexto(n) { return digitosDesde(n, 0); }
+
+fun redondear(n) {
+    var fraccion = n % 1;
+    if (fraccion >= 0.5) return n - fraccion + 1;
+    return n - fraccion;
+}
+
+// Monto a texto con dos decimales: 12345.5 -> "$12.345,50".
+fun pesos(monto) {
+    var signo = "";
+    if (monto < 0) {
+        signo = "-";
+        monto = -monto;
+    }
+    var centavos = redondear(monto * 100);
+    var c = centavos % 100;
+    var texto = signo + "$" + enteroATexto((centavos - c) / 100) + ",";
+    if (c < 10) texto = texto + "0";
+    return texto + enteroATexto(c);
+}
+
+fun porcentaje(parte, total) {
+    return enteroATexto(redondear(parte * 100 / total)) + "%";
+}
+
+// ---------------------------------------------------------------------------
+// Utilidades sobre listas
+// ---------------------------------------------------------------------------
+
+fun filtrar(xs, cumple) {
+    var res = [];
+    for (var i = 0; i < len(xs); i = i + 1) {
+        if (cumple(xs[i])) push(res, xs[i]);
+    }
+    return res;
+}
+
+fun contiene(xs, valor) {
+    for (var i = 0; i < len(xs); i = i + 1) {
+        if (xs[i] == valor) return true;
+    }
+    return false;
+}
+
+fun tomar(xs, n) {
+    var res = [];
+    for (var i = 0; i < n and i < len(xs); i = i + 1) push(res, xs[i]);
+    return res;
+}
+
+// Ordenamiento por inserción sobre una copia (la original no se toca).
+// `vaAntes(a, b)` decide el orden; a igualdad se respeta el orden original.
+fun ordenar(xs, vaAntes) {
+    var res = tomar(xs, len(xs));
+    for (var i = 1; i < len(res); i = i + 1) {
+        var x = res[i];
+        var j = i - 1;
+        while (j >= 0 and vaAntes(x, res[j])) {
+            res[j + 1] = res[j];
+            j = j - 1;
+        }
+        res[j + 1] = x;
+    }
+    return res;
+}
+
+// ---------------------------------------------------------------------------
+// Gastos y presupuestos
+// ---------------------------------------------------------------------------
+
+class Gasto {
+    init(dia, descripcion, categoria, monto) {
+        this.dia = dia;
+        this.descripcion = descripcion;
+        this.categoria = categoria;
+        this.monto = monto;
+    }
+
+    imprimir() {
+        print "  día " + enteroATexto(this.dia) + "  " + this.descripcion + " (" + this.categoria + "): " + pesos(this.monto);
+    }
+}
+
+// Un presupuesto lleva su propio acumulado y avisa cada vez que se pasa.
+class Presupuesto {
+    init(categoria, limite) {
+        this.categoria = categoria;
+        this.limite = limite;
+        this.gastado = 0;
+    }
+
+    registrar(g) {
+        if (g.categoria != this.categoria) return;
+        this.gastado = this.gastado + g.monto;
+        if (this.gastado > this.limite) {
+            print "  ALERTA día " + enteroATexto(g.dia) + ": " + this.categoria + " se pasó del presupuesto de " + pesos(this.limite) + " (lleva " + pesos(this.gastado) + ")";
+        }
+    }
+}
+
+fun sumarMontos(gastos) {
+    var total = 0;
+    for (var i = 0; i < len(gastos); i = i + 1) total = total + gastos[i].monto;
+    return total;
+}
+
+fun imprimirTodos(gastos) {
+    for (var i = 0; i < len(gastos); i = i + 1) gastos[i].imprimir();
+}
+
+var gastos = [
+    Gasto(1, "Alquiler", "vivienda", 450000),
+    Gasto(2, "Nafta", "transporte", 35000),
+    Gasto(3, "Café", "comida", 2750),
+    Gasto(5, "Gas", "servicios", 9340),
+    Gasto(6, "Supermercado", "comida", 47810.2),
+    Gasto(8, "Carga SUBE", "transporte", 8000),
+    Gasto(10, "Café", "comida", 2900),
+    Gasto(12, "Luz", "servicios", 18750.3),
+    Gasto(15, "Verdulería", "comida", 11420.5),
+    Gasto(18, "Cine", "salidas", 9800),
+    Gasto(20, "Internet", "servicios", 21999.99),
+    Gasto(22, "Café", "comida", 3200),
+    Gasto(25, "Carga SUBE", "transporte", 8000),
+    Gasto(27, "Supermercado", "comida", 52340.75),
+    Gasto(28, "Cena de cumpleaños", "salidas", 38500)
+];
+
+// ---------------------------------------------------------------------------
+// Reporte
+// ---------------------------------------------------------------------------
+
+print "=== Gastos de septiembre ===";
+imprimirTodos(gastos);
+
+var total = sumarMontos(gastos);
+print "";
+print "Total: " + pesos(total) + " en " + enteroATexto(len(gastos)) + " gastos";
+print "Promedio por gasto: " + pesos(total / len(gastos));
+
+// Categorías distintas, de la que más pesa a la que menos.
+fun subtotal(categoria) {
+    fun esDeCategoria(g) { return g.categoria == categoria; }
+    return sumarMontos(filtrar(gastos, esDeCategoria));
+}
+fun pesaMas(a, b) { return subtotal(a) > subtotal(b); }
+
+var categorias = [];
+for (var i = 0; i < len(gastos); i = i + 1) {
+    if (!contiene(categorias, gastos[i].categoria)) push(categorias, gastos[i].categoria);
+}
+categorias = ordenar(categorias, pesaMas);
+
+print "";
+print "=== Por categoría ===";
+for (var i = 0; i < len(categorias); i = i + 1) {
+    var s = subtotal(categorias[i]);
+    print "  " + categorias[i] + ": " + pesos(s) + " (" + porcentaje(s, total) + ")";
+}
+
+print "";
+print "=== Los 3 gastos más grandes ===";
+fun masCaro(a, b) { return a.monto > b.monto; }
+imprimirTodos(tomar(ordenar(gastos, masCaro), 3));
+
+// Gastos "hormiga": los chicos que, sumados, pesan.
+fun esHormiga(g) { return g.monto < 5000; }
+var hormiga = filtrar(gastos, esHormiga);
+print "";
+print "=== Gastos hormiga (menos de $5.000) ===";
+imprimirTodos(hormiga);
+print "  Suman " + pesos(sumarMontos(hormiga));
+
+print "";
+print "=== Control de presupuesto ===";
+var presupuestos = [
+    Presupuesto("comida", 100000),
+    Presupuesto("salidas", 40000),
+    Presupuesto("transporte", 60000)
+];
+for (var i = 0; i < len(gastos); i = i + 1) {
+    for (var j = 0; j < len(presupuestos); j = j + 1) presupuestos[j].registrar(gastos[i]);
+}
+
+// Proyección: el mismo mes con una inflación mensual constante. Componer
+// funciones permite armar "aplicar la inflación n veces" sin ningún loop.
+fun ajustePor(inflacion) {
+    fun ajustar(monto) { return monto * (1 + inflacion / 100); }
+    return ajustar;
+}
+
+fun componer(f, g) {
+    fun compuesta(x) { return f(g(x)); }
+    return compuesta;
+}
+
+fun repetir(f, veces) {
+    if (veces == 1) return f;
+    return componer(f, repetir(f, veces - 1));
+}
+
+print "";
+print "=== Proyección con 3% de inflación mensual ===";
+var ajusteMensual = ajustePor(3);
+for (var mes = 1; mes <= 3; mes = mes + 1) {
+    print "  En " + enteroATexto(mes) + " mes(es): " + pesos(repetir(ajusteMensual, mes)(total));
+}
