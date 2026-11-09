@@ -9,10 +9,11 @@ de matplotlib. Cada SVG trae su versión clara y oscura (prefers-color-scheme),
 así se ven bien en GitHub con cualquiera de los dos temas.
 
 Codificación que comparten todos los gráficos:
-  - glox en azul, el resto en gris: la pregunta siempre es "dónde queda glox";
-  - las implementaciones que compilan a bytecode (rlox, loxx) en naranja y con
-    rombo en vez de círculo, porque es la diferencia de diseño que más explica
-    los tiempos (y la que glox va a tener en el Bloque 2).
+  - glox (la versión final, con la VM) en azul y sus versiones anteriores
+    (glox-parcial, glox-vm-sin-opt) en celeste; el resto en gris;
+  - las otras implementaciones que compilan a bytecode (rlox, loxx) en naranja;
+  - rombo para las que compilan a bytecode y círculo para las tree-walk,
+    porque es la diferencia de diseño que más explica los tiempos.
 """
 
 import json
@@ -25,6 +26,8 @@ RESULTS = BENCH_DIR / "results"
 
 # Scripts con carga suficiente para que el arranque no domine (> ~100 ms en glox).
 PESADOS = ["fib_grande", "loops_grande", "calls", "counter", "strings"]
+# Las tres versiones de glox, de la más vieja a la actual.
+GLOX = ["glox-parcial", "glox-vm-sin-opt", "glox"]
 # Los de Fran, con la carga original.
 CHICOS = ["fib", "loops", "closures"]
 
@@ -35,18 +38,19 @@ TITULOS = {
     "closures": "10k closures",
     "fib_grande": "fib(28)",
     "loops_grande": "for 2M",
-    "calls": "1M llamadas",
+    "calls": "2M llamadas",
     "counter": "closure con estado 1M",
     "strings": "1M concatenaciones",
+    "metodos": "1M métodos + 100k instancias",
 }
 
 STYLE = """
 <style>
   svg { --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#8a8984; --grid:#e6e5e1;
-        --glox:#2a78d6; --bytecode:#eb6834; --other:#86857f; }
+        --glox:#2a78d6; --glox-old:#8fbbee; --bytecode:#eb6834; --other:#86857f; }
   @media (prefers-color-scheme: dark) {
     svg { --surface:#1a1a19; --ink:#ffffff; --ink2:#c3c2b7; --muted:#8f8e86; --grid:#383835;
-          --glox:#3987e5; --bytecode:#d95926; --other:#7d7c76; }
+          --glox:#3987e5; --glox-old:#2c5c94; --bytecode:#d95926; --other:#7d7c76; }
   }
   text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: var(--ink2); font-size: 12px; }
   .title { fill: var(--ink); font-size: 15px; font-weight: 600; }
@@ -59,6 +63,7 @@ STYLE = """
   .grid { stroke: var(--grid); stroke-width: 1; }
   .stem { stroke: var(--grid); stroke-width: 2; }
   .glox { fill: var(--glox); stroke: var(--glox); }
+  .glox-old { fill: var(--glox-old); stroke: var(--glox-old); }
   .bytecode { fill: var(--bytecode); stroke: var(--bytecode); }
   .other { fill: var(--other); stroke: var(--other); }
   .line { fill: none; stroke-width: 2; }
@@ -87,12 +92,14 @@ def svg(width, height, body, title):
 def klass(name, impls):
     if name == "glox":
         return "glox"
+    if name.startswith("glox-"):
+        return "glox-old"
     return "bytecode" if impls[name]["kind"] == "bytecode" else "other"
 
 
-def marker(x, y, cls, r=5):
+def marker(x, y, cls, r=5, diamond=False):
     """Círculo para tree-walk, rombo para bytecode; con anillo del color del fondo."""
-    if cls == "bytecode":
+    if diamond:
         d = r + 1.5
         return f'<path class="{cls} ring" d="M{x:.1f},{y - d:.1f} L{x + d:.1f},{y:.1f} L{x:.1f},{y + d:.1f} L{x - d:.1f},{y:.1f} Z"/>'
     return f'<circle class="{cls} ring" cx="{x:.1f}" cy="{y:.1f}" r="{r}"/>'
@@ -146,17 +153,21 @@ def orden(data, impls):
 # 1. Tiempos por benchmark: small multiples con eje log compartido
 # ---------------------------------------------------------------------------
 
-def chart_tiempos(data, impls, names, scripts, filename, title, subtitle):
+def chart_tiempos(data, impls, names, scripts, filename, title, subtitle, speedup_vs=None):
     cols = 2
     rows = math.ceil(len(scripts) / cols)
     label_w, panel_w, row_h = 78, 330, 22
+    scale_w = panel_w - 60
+    if speedup_vs:
+        label_w += 40  # nombres más largos (glox-vm-sin-opt)
+        panel_w += 100  # lugar para el "(N× más rápido)"
     panel_h = 34 + row_h * len(names) + 26
     width = 24 + cols * (label_w + panel_w + 30)
     height = 70 + rows * panel_h + 10
     vals = [valid(data, s, n)["wall_median"] for s in scripts for n in names if valid(data, s, n)]
     lo = 10 ** math.floor(math.log10(min(vals)))
     hi = 10 ** math.ceil(math.log10(max(vals)))
-    lx = lambda v: (math.log10(v) - math.log10(lo)) / (math.log10(hi) - math.log10(lo)) * (panel_w - 60)
+    lx = lambda v: (math.log10(v) - math.log10(lo)) / (math.log10(hi) - math.log10(lo)) * scale_w
     body = [
         f'<text class="title" x="24" y="30">{esc(title)}</text>',
         f'<text class="subtitle" x="24" y="50">{esc(subtitle)}</text>',
@@ -181,10 +192,18 @@ def chart_tiempos(data, impls, names, scripts, filename, title, subtitle):
             if not r:
                 body.append(f'<text class="value" x="{px}" y="{y + 4:.1f}">sin dato</text>')
                 continue
+            if speedup_vs:
+                base = valid(data, script, speedup_vs)
+                if base and name != speedup_vs:
+                    extra = f'  ({fmt_ratio(base["wall_median"] / r["wall_median"])} más rápido)'
+                else:
+                    extra = ""
+            else:
+                extra = ""
             x = px + lx(r["wall_median"])
             body.append(f'<line class="stem" x1="{px}" y1="{y:.1f}" x2="{x:.1f}" y2="{y:.1f}"/>')
-            body.append(marker(x, y, cls))
-            body.append(f'<text class="value" x="{x + 10:.1f}" y="{y + 4:.1f}">{fmt_time(r["wall_median"])}</text>')
+            body.append(marker(x, y, cls, diamond=impls[name]["kind"] == "bytecode"))
+            body.append(f'<text class="value" x="{x + 10:.1f}" y="{y + 4:.1f}">{fmt_time(r["wall_median"])}{extra}</text>')
     (RESULTS / filename).write_text(svg(width, height, body, title))
 
 
@@ -233,7 +252,7 @@ def chart_relativo(data, impls, names):
         x1, x2, xg = px + lx(min(rs)), px + lx(max(rs)), px + lx(gm)
         if name != "glox":
             body.append(f'<line class="{cls}" x1="{x1:.1f}" y1="{y:.1f}" x2="{x2:.1f}" y2="{y:.1f}" stroke-width="2" stroke-linecap="round" opacity="0.55"/>')
-        body.append(marker(xg, y, cls, r=6))
+        body.append(marker(xg, y, cls, r=6, diamond=impls[name]["kind"] == "bytecode"))
         body.append(f'<text class="value" x="{max(x2, xg) + 12:.1f}" y="{y + 4:.1f}">{fmt_ratio(gm)}</text>')
     (RESULTS / "relativo.svg").write_text(svg(width, height, body, title))
 
@@ -325,14 +344,14 @@ def chart_escalado(data, impls, names):
     for n in ns:
         body.append(f'<text class="tick" x="{sx(n):.1f}" y="{top + plot_h + 18}" text-anchor="middle">n = {n}</text>')
     # Primero las grises, al final glox para que quede arriba.
-    ordered = sorted(series, key=lambda n: {"other": 0, "bytecode": 1, "glox": 2}[klass(n, impls)])
+    ordered = sorted(series, key=lambda n: {"other": 0, "bytecode": 1, "glox-old": 2, "glox": 3}[klass(n, impls)])
     for name in ordered:
         cls = klass(name, impls)
         pts = series[name]
         d = " ".join(f"{'M' if k == 0 else 'L'}{sx(n):.1f},{sy(v):.1f}" for k, (n, v) in enumerate(pts))
         body.append(f'<path class="line {cls}" d="{d}" style="fill:none"/>')
         for n, v in pts:
-            body.append(marker(sx(n), sy(v), cls, r=4))
+            body.append(marker(sx(n), sy(v), cls, r=4, diamond=impls[name]["kind"] == "bytecode"))
     # Etiquetas directas a la derecha, separadas para que no se pisen.
     ends = sorted(((sy(series[n][-1][1]), n) for n in series), key=lambda e: e[0])
     placed = []
@@ -441,9 +460,15 @@ def main():
     names = orden(data, list(impls))
 
     chart_tiempos(
-        data, impls, names, PESADOS + ["fib"], "tiempos.svg",
+        data, impls, names, PESADOS + ["metodos", "fib"], "tiempos.svg",
         "Tiempo total por benchmark (mediana)",
-        "De la más rápida a la más lenta en promedio. Escala logarítmica compartida. Rombo naranja = compilan a bytecode.",
+        "De la más rápida a la más lenta en promedio. Escala logarítmica compartida. Rombo = compila a bytecode.",
+    )
+    chart_tiempos(
+        data, impls, [n for n in GLOX if n in impls], PESADOS + ["fib"], "evolucion.svg",
+        "glox a lo largo del desarrollo (mediana)",
+        "Entrega parcial (tree-walk) → primera versión de la VM → VM con la optimización de globales.",
+        speedup_vs="glox-parcial",
     )
     chart_relativo(data, impls, names)
 

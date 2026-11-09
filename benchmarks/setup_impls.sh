@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Clona (si hace falta) y compila las implementaciones de Lox contra las que se
-# compara glox. Deja en $BUILD_DIR/impls.tsv una línea por implementación con
+# compara glox, y dos versiones anteriores de glox (ver más abajo). Deja en $BUILD_DIR/impls.tsv una línea por implementación con
 # el comando exacto para correr un script: la lee run_benchmarks.py.
 #
 # Uso:
@@ -78,8 +78,31 @@ clone() { # nombre url
 if wanted glox; then
     log "compilando glox"
     (cd "$ROOT" && go build -o "$BUILD_DIR/glox" ./cmd/glox) \
-        && emit glox Go tree-walk "$BUILD_DIR/glox" \
+        && emit glox Go bytecode "$BUILD_DIR/glox" \
         || warn "glox no compiló"
+fi
+
+# Versiones anteriores de glox, para medir cómo cambió con el desarrollo: la
+# de la entrega parcial (tree-walk) y la VM antes de la optimización de
+# globales. Se compilan desde el historial con `git archive`, en una copia
+# aparte: el working tree no se toca.
+build_glox_commit() { # nombre commit
+    local src="$BUILD_DIR/$1-src"
+    rm -rf "$src" && mkdir -p "$src" || return 1
+    git -C "$ROOT" archive "$2" | tar -x -C "$src" || return 1
+    (cd "$src" && go build -o "$BUILD_DIR/$1" ./cmd/glox)
+}
+if wanted glox-parcial; then
+    log "compilando glox-parcial (commit 6f06574, entrega parcial)"
+    build_glox_commit glox-parcial 6f06574 \
+        && emit glox-parcial Go tree-walk "$BUILD_DIR/glox-parcial" \
+        || warn "glox-parcial no compiló"
+fi
+if wanted glox-vm-sin-opt; then
+    log "compilando glox-vm-sin-opt (commit 94642a4, VM antes de optimizar las globales)"
+    build_glox_commit glox-vm-sin-opt 94642a4 \
+        && emit glox-vm-sin-opt Go bytecode "$BUILD_DIR/glox-vm-sin-opt" \
+        || warn "glox-vm-sin-opt no compiló"
 fi
 
 # slox declara swift-tools 4.0 y depende de antitypical/Result (tools 3.1),

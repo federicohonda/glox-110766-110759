@@ -51,6 +51,7 @@ SCRIPTS = [
     "calls",
     "counter",
     "strings",
+    "metodos",
 ]
 
 # Curva de escalado: fib(n) para estos n, generados al vuelo.
