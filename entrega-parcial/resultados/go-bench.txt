@@ -1,0 +1,64 @@
+PASS
+ok  	github.com/federicohonda/glox-110766-110759/internal/ast	0.688s
+?   	github.com/federicohonda/glox-110766-110759/internal/bytecode	[no test files]
+goos: darwin
+goarch: arm64
+pkg: github.com/federicohonda/glox-110766-110759/internal/interpreter
+cpu: Apple M5
+BenchmarkFibRecursive-10        	    4380	    273940 ns/op	  778932 B/op	   12453 allocs/op
+BenchmarkFibRecursive-10        	    4401	    276650 ns/op	  778932 B/op	   12453 allocs/op
+BenchmarkFibRecursive-10        	    4341	    275985 ns/op	  778932 B/op	   12453 allocs/op
+BenchmarkFibRecursive-10        	    4326	    276683 ns/op	  778931 B/op	   12453 allocs/op
+BenchmarkFibRecursive-10        	    4351	    277544 ns/op	  778932 B/op	   12453 allocs/op
+BenchmarkLoopIntensive-10       	     897	   1360112 ns/op	 1440984 B/op	   60008 allocs/op
+BenchmarkLoopIntensive-10       	     898	   1356352 ns/op	 1440984 B/op	   60008 allocs/op
+BenchmarkLoopIntensive-10       	     896	   1341397 ns/op	 1440984 B/op	   60008 allocs/op
+BenchmarkLoopIntensive-10       	     894	   1342880 ns/op	 1440984 B/op	   60008 allocs/op
+BenchmarkLoopIntensive-10       	     874	   1351861 ns/op	 1440985 B/op	   60008 allocs/op
+BenchmarkClosureCounter-10      	    6722	    175128 ns/op	  225384 B/op	    9015 allocs/op
+BenchmarkClosureCounter-10      	    6896	    175732 ns/op	  225385 B/op	    9015 allocs/op
+BenchmarkClosureCounter-10      	    6834	    175726 ns/op	  225385 B/op	    9015 allocs/op
+BenchmarkClosureCounter-10      	    6799	    179251 ns/op	  225384 B/op	    9015 allocs/op
+BenchmarkClosureCounter-10      	    6817	    177136 ns/op	  225385 B/op	    9015 allocs/op
+BenchmarkPipelineEndToEnd-10    	   42022	     28431 ns/op	   65568 B/op	    1167 allocs/op
+BenchmarkPipelineEndToEnd-10    	   42274	     28538 ns/op	   65568 B/op	    1167 allocs/op
+BenchmarkPipelineEndToEnd-10    	   41703	     28668 ns/op	   65568 B/op	    1167 allocs/op
+BenchmarkPipelineEndToEnd-10    	   42044	     28604 ns/op	   65568 B/op	    1167 allocs/op
+BenchmarkPipelineEndToEnd-10    	   41968	     28714 ns/op	   65568 B/op	    1167 allocs/op
+PASS
+ok  	github.com/federicohonda/glox-110766-110759/internal/interpreter	27.427s
+goos: darwin
+goarch: arm64
+pkg: github.com/federicohonda/glox-110766-110759/internal/parser
+cpu: Apple M5
+BenchmarkParseExpressions-10    	   51350	     21279 ns/op	   71616 B/op	    1506 allocs/op
+BenchmarkParseExpressions-10    	   56341	     21380 ns/op	   71616 B/op	    1506 allocs/op
+BenchmarkParseExpressions-10    	   55863	     21576 ns/op	   71616 B/op	    1506 allocs/op
+BenchmarkParseExpressions-10    	   55402	     21691 ns/op	   71616 B/op	    1506 allocs/op
+BenchmarkParseExpressions-10    	   55185	     21693 ns/op	   71616 B/op	    1506 allocs/op
+BenchmarkParseFunctions-10      	   69904	     17126 ns/op	   49712 B/op	     905 allocs/op
+BenchmarkParseFunctions-10      	   70098	     17140 ns/op	   49712 B/op	     905 allocs/op
+BenchmarkParseFunctions-10      	   69938	     17258 ns/op	   49712 B/op	     905 allocs/op
+BenchmarkParseFunctions-10      	   69756	     17204 ns/op	   49712 B/op	     905 allocs/op
+BenchmarkParseFunctions-10      	   69555	     17268 ns/op	   49712 B/op	     905 allocs/op
+PASS
+ok  	github.com/federicohonda/glox-110766-110759/internal/parser	14.209s
+PASS
+ok  	github.com/federicohonda/glox-110766-110759/internal/resolver	0.318s
+goos: darwin
+goarch: arm64
+pkg: github.com/federicohonda/glox-110766-110759/internal/scanner
+cpu: Apple M5
+BenchmarkScanArithmetic-10    	   64830	     16621 ns/op	  126192 B/op	     511 allocs/op
+BenchmarkScanArithmetic-10    	   70042	     16833 ns/op	  126192 B/op	     511 allocs/op
+BenchmarkScanArithmetic-10    	   70285	     16996 ns/op	  126192 B/op	     511 allocs/op
+BenchmarkScanArithmetic-10    	   71151	     17057 ns/op	  126192 B/op	     511 allocs/op
+BenchmarkScanArithmetic-10    	   66752	     17164 ns/op	  126192 B/op	     511 allocs/op
+BenchmarkScanKeywords-10      	   23853	     49626 ns/op	  476852 B/op	     214 allocs/op
+BenchmarkScanKeywords-10      	   24022	     48492 ns/op	  476852 B/op	     214 allocs/op
+BenchmarkScanKeywords-10      	   24860	     48194 ns/op	  476851 B/op	     214 allocs/op
+BenchmarkScanKeywords-10      	   25309	     48965 ns/op	  476852 B/op	     214 allocs/op
+BenchmarkScanKeywords-10      	   24126	     49201 ns/op	  476852 B/op	     214 allocs/op
+PASS
+ok  	github.com/federicohonda/glox-110766-110759/internal/scanner	15.469s
+?   	github.com/federicohonda/glox-110766-110759/internal/token	[no test files]

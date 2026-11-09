@@ -3,21 +3,29 @@
 Implementación del lenguaje [Lox](https://craftinginterpreters.com/the-lox-language.html)
 en Go, para el TP de **Lenguajes y Compiladores I (FIUBA)**, Opción I.
 
+> **Este es el informe de la entrega final.** El de la entrega parcial quedó,
+> tal como se entregó el 28/09, en [`entrega-parcial/README.md`](entrega-parcial/README.md),
+> junto con los resultados de benchmarks de ese momento. Este README cubre
+> todo el TP, con el foco en lo que se agregó para la entrega final.
+
 | | |
 |---|---|
 | **Integrantes** | Federico Honda (110766) · Franco Bustos (110759) |
-| **Entrega** | Parcial — Bloque 1: intérprete *tree-walk* (28/09/2026) |
-| **Estado** | Scanner, parser, resolver e intérprete completos · pasa las 5 pruebas de la cátedra (57 aserciones) |
-| **Próximo** | Bloque 2: compilación a bytecode + VM, clases y herencia, una funcionalidad extra (16/11/2026) |
+| **Entrega** | Final (16/11/2026) |
 
 ## Índice
 
 1. [Cómo compilar y ejecutar](#cómo-compilar-y-ejecutar)
 2. [Arquitectura](#arquitectura)
-3. [Diferencias con la implementación de la cátedra](#diferencias-con-la-implementación-de-la-cátedra)
-4. [Pruebas](#pruebas)
-5. [Benchmarks](#benchmarks)
-6. [Cómo trabajamos](#cómo-trabajamos)
+3. [Del tree-walk al bytecode](#del-tree-walk-al-bytecode)
+4. [Clases y herencia](#clases-y-herencia)
+5. [Funcionalidad extra: listas](#funcionalidad-extra-listas)
+6. [Diferencias con la implementación de la cátedra](#diferencias-con-la-implementación-de-la-cátedra)
+7. [Pruebas](#pruebas)
+8. [Benchmarks](#benchmarks)
+9. [Programas de uso real](#programas-de-uso-real)
+10. [Limitaciones conocidas](#limitaciones-conocidas)
+11. [Cómo trabajamos](#cómo-trabajamos)
 
 ---
 
@@ -35,25 +43,28 @@ go build -o glox ./cmd/glox
 
 ```bash
 ./glox examples/hello.lox        # recorrido por la sintaxis básica
+./glox examples/gastos.lox       # programa de uso real: resumen de gastos del mes
+./glox examples/banco.lox        # programa de uso real: cuentas con herencia
 ```
 
 Sin compilar el binario también se puede usar `go run ./cmd/glox examples/hello.lox`.
 
 ### REPL
 
-Sin argumentos, glox abre un REPL. Las variables y funciones se conservan entre
-líneas, y un error no cierra la sesión:
+Sin argumentos, glox abre un REPL. Las variables, funciones y clases se
+conservan entre líneas, y un error no cierra la sesión:
 
 ```text
 $ ./glox
-> fun cuadrado(x) { return x * x; }
-> var n = cuadrado(12);
-> print n;
-144
-> print m;
-[línea 1] Error en tiempo de ejecución en 'm': variable no definida 'm'.
-> print n + 1;
-145
+> class Punto { init(x, y) { this.x = x; this.y = y; } }
+> var ps = [Punto(1, 2), Punto(3, 4)];
+> print ps[1].x + ps[0].y;
+5
+> print ps[2];
+[línea 1] Error en tiempo de ejecución en '[': índice fuera de rango: 2 (la lista tiene 2 elementos).
+> push(ps, Punto(5, 6));
+> print len(ps);
+3
 ```
 
 Se sale con `Ctrl+D` (fin de la entrada).
@@ -61,27 +72,24 @@ Se sale con `Ctrl+D` (fin de la entrada).
 ### Modos de inspección
 
 ```bash
-./glox --scanning    examples/hello.lox   # lista de tokens: TIPO 'lexema' literal
-./glox --parsing     examples/hello.lox   # AST en notación prefija, una sentencia por línea
-./glox --disassemble prog.lox             # bytecode del programa (y de cada función) y su resultado en la VM
-./glox --tree-walk   prog.lox             # ejecuta con el intérprete tree-walk del Bloque 1
-```
-
-```text
-$ echo 'print 1 + 2 * 3;' > /tmp/t.lox
-$ ./glox --parsing /tmp/t.lox
-(print (+ 1 (* 2 3)))
+./glox --scanning    prog.lox   # lista de tokens: TIPO 'lexema' literal
+./glox --parsing     prog.lox   # AST en notación prefija, una sentencia por línea
+./glox --disassemble prog.lox   # bytecode del programa (y de cada función) y después su ejecución
+./glox --tree-walk   prog.lox   # ejecuta con el intérprete tree-walk de la entrega parcial
 ```
 
 Sin flags, `glox` compila el programa a bytecode y lo ejecuta en una máquina
-virtual de pila (Bloque 2). El intérprete tree-walk de la entrega parcial
-sigue disponible con `--tree-walk`, para comparar los dos. `--disassemble`
-muestra además el listado del bytecode antes del resultado; cada función
-compila a su propio chunk y se lista después del programa:
+virtual de pila. El intérprete tree-walk de la entrega parcial sigue
+disponible con `--tree-walk`, para comparar los dos (no tiene clases ni
+listas: las rechaza con un error). Los cuatro modos también funcionan en el
+REPL.
 
 ```text
-$ ./glox --disassemble
-> var x = 2 + 3 * 4; print x;
+$ echo 'var x = 2 + 3 * 4; print x;' > /tmp/t.lox
+$ ./glox --parsing /tmp/t.lox
+(var x = (+ 2 (* 3 4)))
+(print x)
+$ ./glox --disassemble /tmp/t.lox
 == COMPILETIME ==
 0000    1 OP_CONSTANT         0 '2'
 0002    | OP_CONSTANT         1 '3'
@@ -94,23 +102,13 @@ $ ./glox --disassemble
 0013    | OP_RETURN
 == RUNTIME ==
 14
-> print 1 / 0;
-== COMPILETIME ==
-0000    1 OP_CONSTANT         0 '1'
-0002    | OP_CONSTANT         1 '0'
-0004    | OP_DIVIDE
-0005    | OP_PRINT
-0006    | OP_RETURN
-== RUNTIME ==
-[línea 1] Error en tiempo de ejecución en '/': división por cero.
 ```
 
 Las columnas del listado son: posición del opcode, línea del fuente (`|` si no
-cambió), instrucción y, si lleva operando, el índice de la constante y su
-valor. Es el mismo árbol que muestra `--parsing` (`(+ 2 (* 3 4))`), aplanado en
-notación postfija: los operandos antes que el operador.
-
-Los tres modos también funcionan en el REPL (`./glox --parsing`).
+cambió), instrucción y, si lleva operando, el operando y el valor al que
+refiere. Es el mismo árbol que muestra `--parsing`, aplanado en notación
+postfija: los operandos antes que el operador. Cada función, método e
+inicializador compila a su propio chunk y se lista después del programa.
 
 ### Códigos de salida
 
@@ -125,7 +123,7 @@ Los errores van a `stderr` con la línea donde ocurrieron:
 
 ```text
 [línea 3] Error de sintaxis en ';': se esperaba una expresión.
-[línea 5] Error semántico en 'return': no se puede usar 'return' fuera de una función.
+[línea 5] Error semántico en 'super': no se puede usar 'super' en una clase sin superclase.
 [línea 7] Error en tiempo de ejecución en '+': los operandos de '+' deben ser dos números o dos cadenas, se obtuvo: a y 1
 ```
 
@@ -134,12 +132,12 @@ Los errores van a `stderr` con la línea donde ocurrieron:
 ```bash
 go test ./...                               # unitarios + end-to-end
 go test -cover ./internal/...               # cobertura por paquete
-python3 ./real-tests/script.py ./glox       # pruebas de la cátedra
+python3 ./real-tests/script.py ./glox       # pruebas de la cátedra (con la VM)
 go test -run '^$' -bench . -benchmem ./internal/...   # benchmarks de Go
 ```
 
-La comparación contra otras implementaciones tiene su propia guía en
-[`benchmarks/README.md`](benchmarks/README.md).
+La comparación contra otras implementaciones y otros lenguajes tiene su
+propia guía en [`benchmarks/README.md`](benchmarks/README.md).
 
 ---
 
@@ -156,46 +154,44 @@ Código fuente (.lox o REPL)
        │ []ast.Stmt
        ▼
  [3. Resolver] ──────────► errores semánticos (65)
-       │ map[ast.Expr]int   (a cuántos entornos está cada variable local)
+       │
+       ├────────────────────────────────┐ con --tree-walk
+       ▼                                ▼
+ [4. Compiler] ──► errores de     [Interpreter] ──► errores de runtime (70)
+       │           compilación (65)  (entrega parcial)
+       │ *bytecode.Chunk  (instrucciones + constantes + líneas)
        ▼
- [4. Interpreter] ───────► errores de runtime (70)
+ [5. VM]       ──────────► errores de runtime (70)
 ```
 
-Ese es el camino de `--tree-walk`. Por defecto se toma el otro, el del Bloque 2.
-Comparte scanner, parser y resolver con el anterior: lo que cambia es qué se
-hace con el árbol.
-
-```
- [3. Resolver]
-       │ []ast.Stmt
-       ▼
- [5. Compiler] ──────────► errores de compilación (65)
-       │ *bytecode.Chunk    (instrucciones + constantes + líneas)
-       ▼
- [6. VM]       ──────────► errores de runtime (70)
-```
+Scanner, parser y resolver son los mismos para los dos caminos: lo que cambia
+es qué se hace con el árbol.
 
 | Paquete | Qué hace |
 |---|---|
 | `cmd/glox` | CLI: REPL, archivo, `--scanning`, `--parsing`, `--disassemble`, `--tree-walk` y códigos de salida. Arma el pipeline y corta en la primera etapa con errores. |
 | `internal/token` | `TokenType` (enum con `iota`) y `Token{Type, Lexeme, Literal, Line}`. |
 | `internal/scanner` | Análisis léxico *maximal munch*. Acumula todos los errores léxicos del archivo en vez de cortar en el primero. |
-| `internal/ast` | Nodos del AST como structs de datos puros, separados por archivo (`ast.go`, `stmt.go`, `expr_variable.go`, `expr_logical.go`, `expr_call.go`). Cada nodo se imprime en notación prefija (`String()`). |
+| `internal/ast` | Nodos del AST como structs de datos puros, separados por tema (`stmt.go`, `expr_variable.go`, `expr_call.go`, `expr_class.go`, `expr_list.go`, ...). Cada nodo se imprime en notación prefija (`String()`). |
 | `internal/parser` | Parser recursivo descendente: una función por regla de la gramática. Desazucara `for` a `while`. Se recupera de los errores sincronizando hasta la próxima sentencia. |
-| `internal/resolver` | Análisis semántico estático: calcula la distancia de scope de cada variable local y detecta `return` fuera de funciones, lecturas de una variable en su propio inicializador y redeclaraciones locales. |
-| `internal/interpreter` | Evaluación con `type switch`, `Environment` encadenado, funciones con closures. |
-| `internal/bytecode` | Bloque 2: el camino por defecto. `Chunk` (bytecode + tabla de constantes + línea de cada byte), el juego de instrucciones (`OpCode`), un disassembler, el compilador (recorre en postorden el mismo AST que usa el intérprete, con un chunk por función) y la VM de pila con un `callFrame` por llamada. Cubre todo el lenguaje del Bloque 1, incluidas funciones, recursión y closures (las locales capturadas viven en celdas del heap). |
+| `internal/resolver` | Análisis semántico estático: distancia de scope de cada variable local, y los errores que se pueden detectar sin ejecutar (`return` fuera de una función, `this` fuera de una clase, `super` sin superclase, una clase que hereda de sí misma, ...). |
+| `internal/interpreter` | El intérprete tree-walk de la entrega parcial: `type switch`, `Environment` encadenado, closures. Queda como estaba, para comparar y como oráculo de los tests. |
+| `internal/bytecode` | El camino por defecto. `Chunk` (bytecode + constantes + línea de cada byte), `OpCode`, disassembler, el compilador (`compiler.go`, más un pase previo en `captures.go` que detecta qué variables captura una closure), la VM de pila (`vm.go`), los objetos de runtime (`object.go`: funciones, closures, celdas, clases, instancias, métodos ligados, listas y nativas) y las funciones nativas (`natives.go`). |
 
 ### Gramática implementada
 
 ```
 program     → declaration* EOF ;
-declaration → funDecl | varDecl | statement ;
-funDecl     → "fun" IDENTIFIER "(" parameters? ")" block ;
+declaration → classDecl | funDecl | varDecl | statement ;
+classDecl   → "class" IDENTIFIER ( "<" IDENTIFIER )? "{" function* "}" ;
+funDecl     → "fun" function ;
+function    → IDENTIFIER "(" parameters? ")" block ;
 varDecl     → "var" IDENTIFIER ( "=" expression )? ";" ;
 statement   → exprStmt | forStmt | ifStmt | printStmt | returnStmt | whileStmt | block ;
 expression  → assignment ;
-assignment  → IDENTIFIER "=" assignment | logic_or ;
+assignment  → ( call "." )? IDENTIFIER "=" assignment
+            | call "[" expression "]" "=" assignment
+            | logic_or ;
 logic_or    → logic_and ( "or" logic_and )* ;
 logic_and   → equality ( "and" equality )* ;
 equality    → comparison ( ( "!=" | "==" ) comparison )* ;
@@ -203,87 +199,296 @@ comparison  → term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
 term        → factor ( ( "-" | "+" ) factor )* ;
 factor      → unary ( ( "/" | "*" | "%" ) unary )* ;
 unary       → ( "!" | "-" ) unary | call ;
-call        → primary ( "(" arguments? ")" )* ;
-primary     → NUMBER | STRING | "true" | "false" | "nil" | IDENTIFIER | "(" expression ")" ;
+call        → primary ( "(" arguments? ")" | "." IDENTIFIER | "[" expression "]" )* ;
+primary     → NUMBER | STRING | "true" | "false" | "nil" | IDENTIFIER | "(" expression ")"
+            | "this" | "super" "." IDENTIFIER | "[" arguments? "]" ;
 ```
 
-Las clases (`class`, `this`, `super`, `.`) quedan para el Bloque 2: sus tokens
-todavía no existen en el scanner, a propósito, para no tener código a medias.
+Respecto de Lox estándar, lo nuevo es `%` (desde la entrega parcial) y todo lo
+que tiene `[` y `]`.
+
+---
+
+## Del tree-walk al bytecode
+
+La consigna pedía **reconvertir** el TP, no reescribirlo. Lo tomamos
+literal: el compilador arranca del mismo AST que ya armaba el parser, después
+del mismo resolver, y el intérprete de la entrega parcial quedó intacto al
+lado.
+
+**Compilar desde el AST, no en un solo paso.** `clox`, el compilador del
+libro, parsea y emite bytecode al mismo tiempo, sin árbol. Nosotros ya
+teníamos el árbol y el resolver, así que el compilador es un recorrido más:
+la precedencia ya viene resuelta en la forma del árbol, los errores
+estáticos ya los detectó el resolver, y antes de emitir se puede mirar el
+programa entero. Eso último fue clave para las closures (ver abajo). El
+costo es tener el AST completo en memoria, que para programas de este tamaño
+no se nota.
+
+**El orden en que se hizo** fue incremental: expresiones aritméticas y la
+VM de pila; variables globales, locales en slots y saltos; funciones,
+frames, recursión y closures. Con eso la VM corrió todo el lenguaje de la
+entrega parcial, pasó las pruebas de la cátedra y pasó a ser el camino por
+defecto. Después vinieron la optimización y las clases, ya solo en la VM.
+
+**Qué cambió de representación:**
+
+| | Tree-walk (entrega parcial) | VM (entrega final) |
+|---|---|---|
+| Variable local | Búsqueda por nombre en un `map` del `Environment`, `depth` entornos más arriba | Índice de slot en la pila, calculado al compilar (`OpGetLocal 3`) |
+| Variable global | `map[string]Value` | Un arreglo de slots, con el índice cacheado por constante en cada chunk (la optimización, ver [Benchmarks](#benchmarks)) |
+| Llamada | Un `Environment` nuevo con su mapa, más un slice de argumentos | Los argumentos ya están en la pila: pasan a ser los slots del frame nuevo, sin copiarse |
+| `return` | Un `*returnSignal` que sube por el canal de `error` | `OpReturn`: corta la pila en la base del frame de una vez |
+| Closure | La función guarda un puntero a su `Environment` | La función guarda las celdas de las variables que captura |
+
+**Las variables capturadas viven en celdas del heap desde que se declaran.**
+Es la decisión más grande del bloque y donde más nos separamos de `clox`. En
+`clox` una variable vive en la pila mientras su función corre, y si una
+closure la captura, se "muda" al heap cuando la función termina (los
+*upvalues*): hay que llevar la lista de upvalues abiertos y cerrarlos al
+salir de cada scope y en cada `return`. Nosotros, como compilamos desde el
+AST, sabemos *antes de emitir* qué variables captura alguna función anidada
+(un pase previo, `captures.go`), y esas se guardan en una celda desde su
+declaración (`OpBox`). No hay nada que cerrar: el GC de Go mantiene viva la
+celda mientras alguna closure la use. Y en Go la otra opción tenía un
+problema concreto: nuestra pila es un slice que crece con `append`, así que un
+upvalue abierto con un puntero a la pila quedaría apuntando a la copia vieja
+después de una realocación. Las variables que nadie captura (las de `fib`,
+las de cualquier loop) siguen siendo slots comunes y no pagan nada.
+
+**El tree-walk quedó como oráculo.** Las reglas de cada operador están
+escritas dos veces, una en cada backend. Lo que garantiza que no se desvíen
+es compararlos: la misma expresión tiene que dar el mismo valor o el mismo
+error (mensaje y línea incluidos) en los dos, sobre 60 casos a mano y 3000
+expresiones generadas al azar, y todos los scripts de `tests/lox/` que no
+usan clases ni listas se corren por los dos backends.
+
+**Clases y listas, solo en la VM.** Para cuando llegaron, la VM ya era el
+camino por defecto y la entrega final se evalúa sobre ella. Implementarlas
+también en el tree-walk era duplicar la parte más grande del bloque en un
+backend que ya no se usa. El front-end sí las conoce (es compartido), así
+que el tree-walk las rechaza con un error claro (`las clases solo están
+disponibles en la VM`) en vez de uno genérico.
+
+---
+
+## Clases y herencia
+
+```lox
+class Animal {
+  init(nombre) {
+    this.nombre = nombre;
+  }
+  sonido() { return "..."; }
+  hablar() { return this.nombre + " dice " + this.sonido(); }
+}
+
+class Perro < Animal {
+  sonido() { return "guau"; }
+}
+
+class Cachorro < Perro {
+  init(nombre) { super.init(nombre + " (cachorro)"); }
+  sonido() { return super.sonido() + " guau"; }
+}
+
+print Perro("Firulais").hablar(); // Firulais dice guau
+print Cachorro("Toby").hablar();  // Toby (cachorro) dice guau guau
+```
+
+Es la semántica de Lox: campos dinámicos (aparecen al asignarlos), llamar a
+la clase crea la instancia y corre `init`, `init` siempre devuelve `this`, un
+campo tapa a un método del mismo nombre, `obj.metodo` sin llamar devuelve el
+método ligado a `obj`, y `super.m()` llama al `m` de la superclase.
+
+**Cómo está hecho:**
+
+- **Una clase y una instancia son objetos de Go**, siempre por puntero:
+  `Class{Name, Methods map[string]*Closure}` e `Instance{Class, Fields map[string]Value}`.
+  Por puntero para que el `==` de Lox compare identidad (y porque comparar con
+  `==` dos `any` que guardan un struct con un mapa adentro hace `panic` en Go).
+- **`this` es la variable local del slot 0.** En cualquier llamada, el slot 0
+  del frame es el lugar de la pila donde estaba el valor llamado. En un método,
+  la VM pone ahí al receptor, así que `this` compila a `OpGetLocal 0`, sin
+  instrucción propia. Si una función anidada en el método usa `this`, se
+  captura como cualquier otra variable.
+- **`obj.m(args)` es una sola instrucción, `OpInvoke`**, que busca el método y
+  lo llama directo. Compilarlo como "leer la propiedad y después llamar" crea
+  un método ligado que se descarta en la instrucción siguiente.
+- **Al heredar se copian los métodos.** `OpInherit` copia el mapa de métodos
+  de la superclase al de la subclase, y después se agregan los propios, que
+  pisan a los heredados (eso es el override). Buscar un método heredado de
+  tres niveles arriba cuesta una sola consulta al mapa. Es correcto porque en
+  Lox una clase no cambia después de declarada.
+- **`super` es una variable local escondida que los métodos capturan.** Al
+  compilar una clase con superclase, la superclase queda en la pila como una
+  local llamada `super`, en un scope que envuelve a los métodos. Un
+  `super.m()` es leer una variable de afuera, con el mismo mecanismo de
+  closures de las funciones:
+
+  ```
+  == <script> ==                      == <fn hola> ==   (de B)
+  ...                                 OP_CONSTANT       'B y '
+  OP_GET_GLOBAL      'A'              OP_GET_LOCAL      0     ; this
+  OP_GET_GLOBAL      'B'              OP_GET_CAPTURED   0     ; super
+  OP_INHERIT    ; A queda en la pila: es `super`
+  OP_BOX        0      ; en una celda, porque hola la captura
+  OP_GET_GLOBAL      'B'              OP_SUPER_INVOKE   (0 args) 'hola'
+  OP_CLOSURE    <fn hola>             OP_ADD
+                local 0               OP_RETURN
+  OP_METHOD     'hola'
+  ```
+
+  Importa por el caso de tres niveles: en `C < B < A`, un `super.m()` escrito
+  en `B` y ejecutado sobre una `C` tiene que ir a `A`. Si se resolviera
+  mirando la clase de la instancia, iría a `B` y se llamaría a sí mismo para
+  siempre. Con la variable capturada, `super` es la superclase de la clase
+  donde está *escrito* el método. Y un `super` dentro de una función anidada
+  en un método anduvo de entrada, porque es el mismo caso que una closure
+  dentro de otra.
+
+**Errores:**
+
+| Error | Cuándo | Código |
+|---|---|---|
+| `this` fuera de una clase | estático | 65 |
+| `return valor;` adentro de `init` | estático | 65 |
+| `super` fuera de una clase, o en una clase sin superclase | estático | 65 |
+| Una clase que hereda de sí misma | estático | 65 |
+| La superclase no es una clase (`var A = 3; class B < A {}`) | runtime | 70 |
+| Leer o asignar una propiedad de algo que no es una instancia | runtime | 70 |
+| Una propiedad o un método que no existe (también con `super`) | runtime | 70 |
+| Cantidad de argumentos distinta a la de `init` | runtime | 70 |
+
+Los estáticos los detecta el resolver, que ya corría antes de ejecutar: es
+una ventaja de tener el análisis separado del compilador.
+
+---
+
+## Funcionalidad extra: listas
+
+```lox
+var nums = [3, 1, 2];
+push(nums, 10);
+nums[0] = nums[0] * 2;
+print nums;          // [6, 1, 2, 10]
+print len(nums);     // 4
+
+var matriz = [[1, 2], [3, 4]];
+print matriz[1][0];  // 3
+print len("año");    // 3
+```
+
+Elegimos listas porque era lo que más extrañamos al escribir los programas de
+uso real de la entrega parcial: Lox no tiene ninguna estructura de datos, y
+los dos programas tuvieron que armar listas enlazadas con closures
+(`cons(cabeza, cola)` devolviendo una función). Además, a diferencia de un
+ternario o un `break`, toca todas las etapas: sintaxis nueva, una forma de
+asignación nueva, un objeto de runtime, instrucciones y funciones nativas, que
+la VM no tenía.
+
+- **Sintaxis:** literal `[a, b, c]`, índice `xs[i]` y asignación `xs[i] = v`
+  (que es una expresión, como cualquier asignación). El `[` aparece en dos
+  lugares de la gramática: en `primary` abre un literal y después de una
+  expresión es un índice, así que `[1, 2][0]`, `f()[0]`, `this.items[i]` y
+  `m[1][0]` salen solos.
+- **`len(x)` y `push(lista, x)` son funciones nativas**, escritas en Go y
+  definidas como globales al arrancar la VM. Una nativa no abre un frame:
+  recibe los argumentos que ya están en la pila y deja el resultado en el
+  lugar del callee. Preferimos nativas a métodos (`xs.push(1)`) porque así
+  la lista es un valor más y el modelo de objetos no cambia: con métodos,
+  `OpInvoke` tendría que aceptar receptores que no son instancias.
+- **Índices estrictos:** un entero entre `0` y `len - 1`; cualquier otra
+  cosa es un error de runtime (`índice fuera de rango: 3 (la lista tiene 3
+  elementos).`). Nada de índices negativos como Python ni de `nil` al pasarse
+  como JavaScript: por la regla de oro de Lox, si `xs[-1]` no tiene un
+  significado obvio, tiene que ser un error.
+- **Las listas son referencias:** `var b = a; push(b, 1);` modifica `a`, y
+  `==` compara identidad (`[1] == [1]` es `false`), igual que con las
+  instancias.
+- **Regla de oro en la asignación:** `a[5] = 1 / 0` sobre una lista vacía da
+  *división por cero*, no *índice fuera de rango*: se evalúan la lista, el
+  índice y el valor, y recién ahí se chequea.
+- **`print` muestra los elementos como los mostraría `print`**
+  (`[1, dos, nil, [3]]`), y una lista que se contiene a sí misma imprime
+  `[...]` en esa posición en vez de recursar hasta el stack overflow.
+
+Las tres instrucciones nuevas son `OpList n` (arma la lista con los `n`
+valores del tope de la pila), `OpGetIndex` y `OpSetIndex`.
 
 ---
 
 ## Diferencias con la implementación de la cátedra
 
-La referencia es **plox**, el intérprete tree-walk en Python que se construye
-en clase. Todo lo de esta sección se verificó corriendo los mismos scripts en
-plox y en glox.
+La referencia para el lenguaje es **plox**, el intérprete tree-walk en Python
+de la cátedra, y para la parte de bytecode, **clox**, el compilador en C del
+libro, que es el que se sigue en las clases de compilación.
 
 ### Qué cambia en el lenguaje
 
 | | plox | glox |
 |---|---|---|
+| Clases y herencia | No tiene (no las reconoce el scanner) | Sí, solo en la VM |
+| Listas | No | Sí: `[a, b]`, `xs[i]`, `xs[i] = v`, `len`, `push` |
+| Funciones nativas | Ninguna | `len` y `push` |
 | Operador `%` | Sí | Sí (`math.Mod`, misma precedencia que `*` y `/`) |
 | `print 1 / 0;` y `print 1 % 0;` | Error de runtime | Error de runtime |
-| Varios errores léxicos o de sintaxis en un archivo | Reporta el primero y corta | **Reporta todos**: el scanner los acumula y el parser se sincroniza en la próxima sentencia |
-| Varios errores semánticos | Reporta el primero y corta | **Reporta todos**, y si hay alguno no se ejecuta nada |
+| Varios errores estáticos en un archivo | Reporta el primero y corta | **Reporta todos** (léxicos, de sintaxis y semánticos) y no ejecuta nada |
 | Código de salida ante un error | `0` en todos los casos | **`65`** si es estático, **`70`** si es de runtime |
-| `print 4999950000;` | `4999950000.0` | `4.99995e+09` (formato `%v` de Go) |
-| `print 3;` | `3.0` | `3` |
-| Mensajes de error | Inglés, sin número de línea en runtime | Español, con línea y lexema: `[línea 7] Error en tiempo de ejecución en '+': ...` |
-| Clases, `this`, `super` | Sí | Bloque 2 |
+| Recursión infinita | `RecursionError` de Python | Error de runtime: `desbordamiento de pila (más de 100000 llamadas anidadas).` |
+| `print 3;` y `print 4999950000;` | `3.0` y `4999950000.0` | `3` y `4.99995e+09` (formato `%v` de Go) |
+| Mensajes de error | Inglés, sin número de línea en runtime | Español, con línea y lexema |
 
 ### Qué nos obligó (o nos permitió) hacer distinto Go
 
-**1. `type switch` para recorrer el AST.** plox despacha por tipo de nodo con
-`@singledispatchmethod`: registra una función por clase y Python elige en
-runtime. En Go, la interfaz `ast.Expr` es un conjunto cerrado de structs y un
-`switch e := expr.(type)` despacha directo, sin registros ni un patrón Visitor
-con métodos `accept` en cada nodo. El costo: el compilador no avisa si falta un
-caso. Lo cubrimos con un `default` que devuelve un error explícito y con tests
-por tipo de nodo.
+De la entrega parcial (el detalle está en el [informe parcial](entrega-parcial/README.md#qué-nos-obligó-o-nos-permitió-hacer-distinto-go)):
 
-**2. `return` como un valor de error, no como excepción.** plox corta la
-ejecución de una función con `raise ReturnValue(...)`, que atrapa la llamada.
-Go no tiene excepciones, y usar `panic` para control de flujo normal va contra
-el estilo del lenguaje. Como `Execute` ya devolvía `error` en todas las
-sentencias, `return` devuelve un `*returnSignal` (un tipo que implementa
-`error` y lleva el valor): sube solo a través de bloques, `if` y `while` sin
-que ninguno lo conozca, hasta que `Function.Call` lo reconoce. Esto tiene un
-efecto medible: ver el análisis de [Benchmarks](#benchmarks).
+- **`type switch` en vez de Visitor** para recorrer el AST, tanto en el
+  intérprete como en el compilador.
+- **`return` como un valor de error y no como excepción** en el tree-walk:
+  medimos que en las implementaciones que usan una excepción, `return` cuesta
+  hasta 9 veces más.
+- **`panic`/`recover` solo adentro del parser**, para volver a la sentencia,
+  sincronizar y seguir reportando errores.
+- **El resolver no conoce al intérprete:** es una función pura que devuelve un
+  mapa, así que el compilador lo usa igual que el intérprete.
+- **Valores como `any`**: cada operación pregunta explícitamente el tipo, sin
+  conversiones implícitas prestadas del lenguaje anfitrión.
 
-**3. `panic`/`recover` sí, pero solo dentro del parser.** plox lanza
-`SyntaxError` y el primer error termina el parseo. En glox un error de sintaxis
-también puede detectarse diez niveles abajo en la recursión, pero queríamos
-volver hasta la sentencia, sincronizar y seguir buscando errores. Enhebrar
-`(ast.Expr, error)` en cada regla habría duplicado el tamaño del parser, así
-que se usa `panic(*ParseError)` en el punto exacto del error y un único
-`recover` por declaración. El `panic` nunca sale del paquete. Los errores que
-no desorientan al parser (más de 255 argumentos) se anotan sin `panic`, para
-no generar errores falsos en cascada.
+Nuevas de la entrega final:
 
-**4. El resolver no conoce al intérprete.** En plox, el `Resolver` recibe el
-intérprete y le va avisando la distancia de cada variable
-(`interpreter.resolve_depth`). En Go eso sería un import circular prohibido
-entre paquetes, y además mezcla análisis estático con ejecución.
-`resolver.Resolve(stmts)` es una función pura que devuelve un `map[ast.Expr]int`;
-la clave es el puntero al nodo, así que dos `print a;` iguales en lugares
-distintos tienen distancias independientes. El paquete no tiene ningún `Value`:
-queda a la vista que el análisis semántico no ejecuta nada.
+**1. Celdas en vez de upvalues.** Explicado arriba en
+[Del tree-walk al bytecode](#del-tree-walk-al-bytecode): el AST nos deja
+saber de antemano qué se captura, el GC nos deja no decidir cuándo liberar, y
+la pila como slice de Go hacía frágil apuntar adentro de ella. Es la misma
+idea que usa el compilador de Go con sus propias closures: una variable
+capturada que puede sobrevivir a su función se aloca en el heap.
 
-**5. Tipos estáticos para valores dinámicos.** En Python cualquier variable
-puede tener un número, un string o una función. En Go, un valor de Lox es
-`any` y cada operación pregunta explícitamente qué tiene (`v.(float64)`), lo
-que obliga a escribir cada chequeo de tipos de Lox en el intérprete: no hay
-ninguna conversión implícita "prestada" del lenguaje anfitrión.
+**2. El frame en curso vive en la VM, no en un puntero.** `clox` guarda un
+puntero al `CallFrame` actual. En Go, un puntero a un elemento del slice de
+frames quedaría colgado cuando el slice crece, así que el `chunk`, el `ip`, la
+`base` y la closure del frame actual se copian a campos de la VM, y el `ip` se
+guarda en el frame recién al hacer una llamada. De paso, las instrucciones que
+no llaman ni retornan no se enteraron de que existen los frames.
 
-**6. El GC resuelve las closures, igual que en Python.** Una `Function` guarda
-un puntero al `Environment` donde se declaró; ese entorno sigue vivo mientras
-alguna función lo referencie, aunque el bloque que lo creó ya haya terminado.
-Esto va a cambiar en el Bloque 2: con una VM de pila, las variables locales
-viven en el stack y hay que sacarlas de ahí cuando una closure las captura.
+**3. Pila y frames que crecen, con un tope.** `clox` usa arreglos de tamaño
+fijo y da *stack overflow* al llenarlos. Nosotros usamos slices, que crecen
+solos; para que una recursión infinita no termine agotando la memoria, hay un
+tope de 100.000 llamadas anidadas que da un error de runtime normal (en el
+tree-walk, en cambio, termina con el *stack overflow* fatal del runtime de Go).
 
-**En común con plox:** `for` se desazucara en el parser a
-`{ init; while (cond) { cuerpo; inc; } }`, sin nodo propio en el AST.
+**4. Los objetos los recolecta el GC de Go.** En `clox`, cada tipo de objeto
+nuevo (clase, instancia, método ligado) obliga a enseñarle al recolector cómo
+recorrerlo, y las tablas de métodos y campos son tablas de hash propias con
+strings internados. Acá los métodos y los campos son `map` de Go, los ciclos
+(una instancia que se guarda a sí misma en un campo, una lista que se contiene)
+los resuelve el GC, y sumar las listas no tocó nada de eso.
+
+**5. Errores estáticos en el resolver, no en el compilador.** `clox` detecta
+`this` fuera de una clase o `super` sin superclase en medio del compilador de
+un solo paso. Acá ya estaba el resolver, que corre antes y es compartido: los
+errores nuevos de clases se agregaron una sola vez y valen para los dos
+backends.
 
 ---
 
@@ -291,259 +496,361 @@ viven en el stack y hay que sacarlas de ahí cuando una closure las captura.
 
 | Nivel | Dónde | Qué cubre |
 |---|---|---|
-| Pruebas de la cátedra | `real-tests/` | 5 archivos, 57 aserciones: aritmética, strings, control de flujo, funciones, el bug de closures, una máquina de Minsky y FizzBuzz. **5/5 OK.** |
-| Unitarias | `internal/*/*_test.go` | Cada paquete por separado. Cobertura: bytecode 100%, parser 98,2%, scanner 94,8%, interpreter 93,9%, resolver 91,1%. |
-| Tree-walk vs. bytecode | `internal/bytecode/treewalk_test.go` | La misma expresión evaluada por el intérprete y por la VM tiene que dar el mismo valor o el mismo error, con el mismo mensaje y la misma línea. Unos 60 casos borde escritos a mano y 3000 expresiones generadas al azar con semilla fija. |
-| End-to-end | `tests/` | El binario real sobre 38 scripts `.lox` y 22 expresiones para `--disassemble`, más el REPL, los modos de inspección, los códigos de salida, la salida de `examples/hello.lox` y el resultado de cada benchmark. |
+| Pruebas de la cátedra | `real-tests/` | 5 archivos, 57 aserciones: aritmética, strings, control de flujo, funciones, el bug de closures, una máquina de Minsky y FizzBuzz. **5/5 OK con la VM y 5/5 con `--tree-walk`.** |
+| Unitarias | `internal/*/*_test.go` | Cada paquete por separado: parser 98,5%, resolver 92,7%, scanner 93,3%, interpreter 92,6%, bytecode 89,5% de cobertura. En `bytecode`, archivos por tema (`compiler`, `vm`, `functions`, `classes`, `inheritance`, `lists`), con listados exactos del bytecode esperado en los casos delicados. |
+| Tree-walk vs. bytecode | `internal/bytecode/treewalk_test.go` | El intérprete como oráculo de la VM: 60 casos borde y 3000 expresiones al azar con semilla fija, comparando valor o mensaje de error completo. |
+| End-to-end | `tests/` | El binario real sobre 53 scripts `.lox` (corridos por los dos backends) y 31 programas para `--disassemble`, más el REPL, los modos de inspección, los códigos de salida, la salida completa de los tres programas de `examples/` y el resultado de cada benchmark. |
 
 Los scripts de `tests/lox/` declaran lo que esperan en comentarios, y
 `tests/e2e_test.go` compila glox y los verifica:
 
 ```lox
 // exit: 70
-// stderr: [línea 5] Error en tiempo de ejecución en '+'
-// Todo lo anterior al error se ejecuta.
-print "antes"; // expect: antes
-print "a" + 1;
-print "después";
+// stderr: [línea 6] Error en tiempo de ejecución en '[': índice fuera de rango: 3 (la lista tiene 3 elementos).
+var a = [1, 2, 3];
+print a[2]; // expect: 3
+
+print a[3];
+print "no llega";
 ```
 
 Están agrupados por tema: `expresiones/`, `variables/`, `control/`,
-`funciones/`, `errores_estaticos/` (código 65: no se ejecuta nada) y
-`errores_runtime/` (código 70: se ejecuta hasta el error). Algunos casos que
-vale la pena mirar:
+`funciones/`, `clases/`, `listas/`, `errores_estaticos/` (código 65: no se
+ejecuta nada) y `errores_runtime/` (código 70: se ejecuta hasta el error). Los
+de `clases/` y `listas/` se corren por la VM, y por el tree-walk se verifica
+que los rechace con el error explicativo. Algunos que vale la pena mirar:
 
-- `funciones/closure_bug.lox`: el caso clásico que arregla el resolver.
-- `errores_runtime/regla_de_oro.lox`: `123(1 / 0)` da *división por cero*, no
-  *solo se pueden llamar funciones*, porque primero se evalúan los argumentos.
-- `errores_estaticos/return_global.lox`: el `print` anterior al `return` no
-  llega a ejecutarse, porque el error es estático.
-- `control/logicos_cortocircuito.lox`: `and`/`or` devuelven el operando que
-  decidió y no evalúan el otro.
+- `clases/super_tres_niveles.lox`: el caso de `C < B < A` donde un `super`
+  mal resuelto se llamaría a sí mismo para siempre.
+- `errores_estaticos/super_sin_superclase.lox`: dos errores semánticos en el
+  mismo archivo, reportados los dos.
+- `funciones/closure_bug.lox`: el caso clásico que arregla el resolver, que
+  en la VM se resuelve en compilación.
+- `errores_runtime/regla_de_oro.lox`: `123(1 / 0)` da *división por cero*,
+  no *solo se pueden llamar funciones*, porque primero se evalúan los argumentos.
 
-Los de `tests/bytecode/` son una expresión suelta cada uno y se corren con
-`--disassemble`. Declaran además las instrucciones que tiene que mostrar el
-listado, y `// expect:` es el resultado que imprime la VM:
+Los de `tests/bytecode/` se corren con `--disassemble` y declaran además las
+instrucciones que tiene que mostrar el listado, en orden:
 
 ```lox
-// Los paréntesis cambian el orden de las instrucciones y no emiten ninguna.
-// ops: OP_CONSTANT OP_CONSTANT OP_ADD OP_CONSTANT OP_MULTIPLY OP_RETURN
-(2 + 3) * 4 // expect: 20
+// ops: OP_CONSTANT OP_CONSTANT OP_LIST OP_DEFINE_GLOBAL OP_GET_GLOBAL OP_CONSTANT OP_GET_GLOBAL OP_CONSTANT OP_GET_INDEX OP_SET_INDEX OP_POP OP_GET_GLOBAL OP_PRINT OP_RETURN
+// expect: [2, 2]
+var a = [1, 2];
+a[0] = a[1];
+print a;
 ```
-
-Como las reglas de cada operador están escritas dos veces (en el intérprete y
-en la VM), lo que garantiza que no se desvíen es compararlas: los tests de
-`treewalk_test.go` usan al intérprete tree-walk como oráculo de la VM.
 
 ```bash
 go test ./tests -v                 # solo end-to-end, con el detalle de cada script
-go test ./tests -update            # regenerar tests/golden/ si el ejemplo cambia a propósito
+go test ./tests -update            # regenerar tests/golden/ si un ejemplo cambia a propósito
 ```
 
 ---
 
 ## Benchmarks
 
-Comparamos glox contra **otras 8 implementaciones de Lox** escritas en Rust,
-C++, Java, Swift, Dart, PHP, Clojure y Python (la de la cátedra), corriendo los
-mismos 9 scripts en la misma máquina. Cómo se mide y cómo reproducirlo está en
-[`benchmarks/README.md`](benchmarks/README.md); las tablas completas, en
-[`benchmarks/results/RESULTS.md`](benchmarks/results/RESULTS.md).
+La consigna pide tres comparaciones: contra la entrega parcial (cómo mejoró
+la implementación con el desarrollo), contra otras implementaciones de Lox, y
+las mismas ideas en otros lenguajes. Las tres están acá. Cómo se mide y cómo
+reproducirlo está en [`benchmarks/README.md`](benchmarks/README.md); las
+tablas completas, en [`benchmarks/results/RESULTS.md`](benchmarks/results/RESULTS.md).
 
-- **Máquina:** Apple M5, 16 GB de RAM, macOS 26 · Go 1.27 · 26/09/2026.
+- **Máquina:** Apple M5, 16 GB de RAM, macOS 26 · Go 1.27 · 08/11/2026. La
+  misma de la entrega parcial.
 - **Métrica:** mediana del tiempo total del proceso (arranque + scan + parse +
-  resolve + ejecución) sobre 3 a 5 corridas, validando que cada corrida
-  imprima el resultado correcto.
-- **Colores:** en los gráficos, glox aparece en azul y las dos
-  implementaciones a bytecode (rlox y loxx) en naranja y con rombo.
+  resolve + compilación + ejecución) sobre 3 a 5 corridas, validando que cada
+  corrida imprima el resultado correcto.
+- **Scripts:** los mismos 9 de la entrega parcial, sin tocar, más
+  `metodos.lox` (clases) que se sumó ahora.
+- **Tres versiones de glox, medidas en la misma corrida:** `glox-parcial` (el
+  tree-walk entregado el 28/09, compilado desde el commit `6f06574`),
+  `glox-vm-sin-opt` (la primera versión de la VM, antes de la optimización) y `glox`
+  (la versión final).
 
-### Implementaciones comparadas
+### glox a lo largo del desarrollo
 
-Todas son *tree-walk* como glox, salvo rlox y loxx, que compilan a bytecode y
-ejecutan en una VM.
+![glox a lo largo del desarrollo](benchmarks/results/evolucion.svg)
 
-| Implementación | Lenguaje | Estrategia | Repositorio |
-|---|---|---|---|
-| rlox | Rust | AST → bytecode + VM | https://github.com/Darksecond/lox |
-| loxx | C++ | bytecode + VM | https://github.com/mspraggs/loxx |
-| jlox | Java | tree-walk | https://github.com/ryanq/jlox |
-| slox | Swift | tree-walk | https://github.com/alexito4/slox |
-| dlox | Dart | tree-walk | https://github.com/sma/lox |
-| plox-php | PHP | tree-walk | https://github.com/minirop/plox |
-| cloxure | Clojure | tree-walk | https://github.com/ceronman/cloxure |
-| plox | Python | tree-walk (la de la cátedra) | https://github.com/FdelMazo/plox |
+| Script | Entrega parcial (tree-walk) | VM sin optimizar | VM final | Parcial → final |
+|---|---:|---:|---:|---:|
+| `fib(28)` | 146 ms | 41 ms | 41 ms | **3,6×** |
+| `for` 2M | 271 ms | 93 ms | 70 ms | **3,9×** |
+| 2M llamadas | 418 ms | 98 ms | 84 ms | **5,0×** |
+| Closure con estado 1M | 194 ms | 64 ms | 50 ms | **3,9×** |
+| 1M concatenaciones | 182 ms | 95 ms | 66 ms | **2,8×** |
 
-### Resultados
+**La VM es entre 2,8 y 5 veces más rápida que el tree-walk** (3,7× en
+promedio geométrico), con el mismo lenguaje, el mismo front-end y el mismo
+GC. La diferencia está en qué cuesta cada operación, y los benchmarks de Go
+lo muestran por etapa, sin el arranque del proceso:
 
-**Resumen: cuántas veces más lenta que glox es cada una**, promediando los
-cinco benchmarks con carga (fib(28), un `for` de 2 millones de vueltas, 2
-millones de llamadas, una closure con estado llamada un millón de veces y un
-millón de concatenaciones):
+| Programa | Tree-walk | VM | Alocaciones tree-walk | Alocaciones VM |
+|---|---:|---:|---:|---:|
+| `fib(15)` (1.973 llamadas) | 282 µs | 73 µs | 12.453 | 2.598 |
+| `for` de 10.000 vueltas | 1,35 ms | 340 µs | 60.008 | 20.010 |
+| Closure, 1.000 llamadas | 176 µs | 46 µs | 9.015 | 2.016 |
+
+En la entrega parcial habíamos medido de dónde salían las ~6 alocaciones por
+llamada del tree-walk: el `Environment` de la llamada y su mapa (35%), guardar
+el parámetro en ese mapa (18%), el slice de argumentos (29%) y el
+`returnSignal` del `return` (18%). La VM no hace ninguna de esas cosas: los
+argumentos ya están en la pila y pasan a ser los slots del frame nuevo, las
+locales son un índice calculado al compilar y `return` corta la pila en la
+base del frame. Por eso `fib(15)` baja de 12.453 alocaciones a 2.598, y lo que
+queda (~1,3 por llamada) son números: en Go, un `float64` guardado en un `any`
+se aloca en el heap. Lo mismo en el `for`: el tree-walk crea un `Environment`
+por vuelta (el cuerpo es un bloque) y la VM no crea ninguno.
+
+La mayor mejora es en `calls` (5×) porque es el benchmark que más llamadas
+hace por unidad de trabajo, y la menor en `strings` (2,8×) porque ahí buena
+parte del tiempo es crear strings nuevos, que cuesta lo mismo en los dos.
+
+### La optimización: globales en slots con caché por instrucción
+
+La elegimos midiendo: un perfil de CPU de la VM mostró que **~13% del tiempo**
+se iba en buscar variables globales en un `map[string]Value` (hashear el
+nombre en cada acceso). Las locales ya eran un índice; las globales (todas las
+variables de un script y todas las funciones de nivel superior) se seguían
+buscando por nombre. La optimización le da a cada global un slot fijo en un
+arreglo de la VM, y cada chunk guarda, por cada constante de nombre, el slot
+que le corresponde: el primer acceso lo resuelve por nombre y los siguientes
+son una indexación directa (*inline caching*).
+
+| Script | Antes | Después | Mejora | Accesos a globales |
+|---|---:|---:|---:|---|
+| `fib(28)` | 40,8 ms | 39,6 ms | 3% | 2 lecturas de `fib` por llamada |
+| 2M llamadas | 98 ms | 84 ms | 14% | 4 por vuelta (`total` y dos veces `sumar`) |
+| Closure con estado 1M | 64 ms | 50 ms | 22% | 2 por vuelta (`contador` y `ultimo`) |
+| `for` 2M | 93 ms | 70 ms | 25% | 2 por vuelta (`sum`), casi lo único que hace |
+| 1M concatenaciones | 95 ms | 66 ms | 31% | 3 por vuelta (`s`), 5 cada cinco vueltas (`completos`) |
+
+(`fib(28)` medido con `hyperfine`, 20 corridas, porque la diferencia es chica.)
+
+**La mejora es proporcional a qué fracción del trabajo son accesos a
+globales**, que es lo que el perfil predecía. En el `for`, cada vuelta lee y
+escribe `sum` y no hace mucho más: el mapa era una parte grande del costo. En
+`fib`, las dos lecturas de `fib` quedan enterradas en el costo de la llamada
+en sí (armar el frame, la comparación, la resta, el retorno), así que casi no
+se nota. En promedio, la VM final es **1,2× más rápida** que antes de
+optimizar, sin cambiar ni un opcode ni la semántica.
+
+### Contra otras implementaciones de Lox
 
 ![Tiempo relativo a glox](benchmarks/results/relativo.svg)
 
-| | rlox | loxx | jlox | **glox** | slox | dlox | plox-php | cloxure | plox |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Relativo a glox | 0,12× | 0,15× | 0,77× | **1×** | 5,4× | 6,6× | 21× | 36× | 68× |
-
-**Tiempo por benchmark:**
+| | rlox | loxx | **glox** | jlox | glox-parcial | slox | dlox | plox-php | cloxure | plox |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Estrategia | bytecode | bytecode | **bytecode** | tree-walk | tree-walk | tree-walk | tree-walk | tree-walk | tree-walk | tree-walk |
+| Relativo a glox | 0,47× | 0,56× | **1×** | 2,9× | 3,7× | 20× | 25× | 80× | 133× | 254× |
 
 ![Tiempo total por benchmark](benchmarks/results/tiempos.svg)
 
-| Script | glox | plox (cátedra) | glox vs plox |
-|---|---:|---:|---:|
-| `fib(28)` | 147 ms | 8,56 s | 58× más rápido |
-| `for` 2M | 273 ms | 20,5 s | 75× |
-| 2M llamadas | 416 ms | 22,9 s | 55× |
-| closure con estado 1M | 194 ms | 15,0 s | 77× |
-| 1M concatenaciones | 185 ms | 14,3 s | 78× |
+**En la entrega parcial glox era el tree-walk más rápido salvo jlox, y las
+dos implementaciones a bytecode eran 7–8× más rápidas. Ahora glox es más
+rápida que todos los tree-walk en todos los benchmarks con carga, y la distancia con
+rlox (Rust) y loxx (C++) bajó a ~2×.** jlox, que con el JIT de la JVM nos
+ganaba en los programas largos, ahora queda 2,9× atrás, y en la curva de
+escalado glox es más rápido para todo n (con fib(27): 26 ms contra 78 ms).
 
-**Arranque y memoria:**
+Contra plox, la de la cátedra, la VM es entre 210× y 296× más rápida (era
+55–78× con el tree-walk).
 
-![Costo de arranque](benchmarks/results/arranque.svg)
+**Por qué rlox y loxx siguen siendo 2× más rápidas:** las tres compilan a
+bytecode y ejecutan en una VM de pila parecida, así que la diferencia ya no es
+de diseño sino de cómo se representa un valor. En C y en Rust un valor de Lox
+es un struct chico (o un `double` con los otros tipos escondidos adentro) que
+se copia sin alocar. En glox es un `any` de Go, y guardar un número en un
+`any` lo manda al heap: son las ~2 alocaciones por vuelta del `for` y las ~1,3
+por llamada de `fib` que quedan. Cada una es trabajo para el GC. Sacarlas
+implicaría reemplazar `any` por un struct propio con un tag, y tocar cada
+instrucción de la VM: es la próxima optimización si hubiera que seguir.
 
-![Memoria residente pico](benchmarks/results/memoria.svg)
+**Clases (`metodos.lox`):** glox tarda 91 ms, contra 34 ms de rlox y 39 ms de
+loxx, una distancia un poco mayor que en el resto (2,3–2,7×). Un perfil de CPU
+muestra por qué: ~20% del tiempo se va en buscar y asignar en los mapas de
+campos y métodos, hasheando el nombre en cada acceso. Es exactamente el costo
+que la optimización le sacó a las globales, ahora en las propiedades; `clox`
+lo evita con strings internados, que hacen que comparar dos nombres sea
+comparar dos punteros. Contra los tree-walk, glox sigue adelante (jlox 295 ms,
+slox 1,8 s). **Solo 7 de las 11 pudieron correrlo**: plox no tiene clases, en
+plox-php falla `this` adentro de los métodos, y las dos versiones viejas de
+glox son anteriores a las clases. Además, rlox corta con `UndefinedProperty`
+cuando se llama a un método heredado, por lo que el benchmark quedó sin
+herencia.
 
-**Escalado:** fib(n) para n = 15, 18, 21, 24 y 27:
+**Memoria y arranque:** glox usa 10–11 MB en los benchmarks pesados (el
+tree-walk, 11–13 MB) y arranca en 2,1 ms. Esos números no cambiaron con la VM
+porque los domina el runtime de Go, no el programa.
 
-![Escalado de fib(n)](benchmarks/results/escalado.svg)
+### Las mismas ideas en otros lenguajes
 
-**Costo por etapa de glox** (benchmarks de Go, sin el arranque del proceso;
-mediana de 5 corridas):
+`fib(28)` y el `for` de 2 millones de vueltas, escritos directamente en
+cada lenguaje (`benchmarks/otros_lenguajes/`) y medidos con `hyperfine`:
 
-| Qué | Tiempo | Memoria | Alocaciones |
-|---|---:|---:|---:|
-| Escanear 100 líneas de aritmética (~500 tokens) | 17 µs | 123 KB | 511 |
-| Parsear 100 líneas de expresiones | 22 µs | 70 KB | 1.506 |
-| Ejecutar `fib(15)` (1.973 llamadas) | 277 µs | 761 KB | 12.453 |
-| Ejecutar un `for` de 10.000 vueltas | 1,35 ms | 1,4 MB | 60.008 |
-| Pipeline completo de un programa chico | 29 µs | 64 KB | 1.167 |
-
-### Análisis
-
-**1. Frente a la cátedra: entre 55× y 78× más rápido, y entre 2,5 y 3 veces
-menos memoria.** plox es un intérprete escrito en un lenguaje interpretado: cada
-nodo del AST de Lox que visita se traduce en decenas de instrucciones de
-bytecode de CPython, que a su vez se interpretan. glox es código de máquina
-nativo recorriendo el mismo árbol. Hay dos niveles de interpretación contra
-uno. La diferencia es pareja en todos los benchmarks (55×–78×) justamente
-porque es un costo multiplicativo que se paga en cada nodo, sin importar qué
-haga el programa. En memoria, glox necesita 11–13 MB contra 32 MB de plox,
-casi todo por el runtime: plox ejecutando `print "ok";` ya ocupa 32 MB, más
-que glox ejecutando fib(28).
-
-**2. Las implementaciones a bytecode son 7–8× más rápidas que glox, y los
-benchmarks de Go muestran por qué.** Cada llamada a función de glox hace unas
-**6 alocaciones en el heap** (12.453 para las 1.973 llamadas de fib(15)).
-El perfil de memoria dice de dónde salen:
-
-| Origen | Alocaciones |
-|---|---:|
-| Crear el `Environment` de la llamada (struct + mapa) | 35% |
-| Guardar el parámetro en ese mapa (`Define`) | 18% |
-| Slice de argumentos y números que pasan a `any` | 29% |
-| El `returnSignal` del `return` | 18% |
-
-Además, cada lectura de una variable local es una búsqueda por string en un
-mapa, después de saltar `depth` entornos. El `for` paga lo mismo en cada
-vuelta, porque el cuerpo es un bloque y cada bloque crea su `Environment`
-(60.008 alocaciones para 10.000 vueltas). Una VM de pila como la de rlox o
-loxx no crea nada de eso: los parámetros y las locales son posiciones fijas del
-stack, calculadas al compilar, y leer una variable es indexar un arreglo. Es
-exactamente lo que vamos a construir en el Bloque 2, y estos números son la
-línea de base contra la que lo vamos a medir.
-
-**3. jlox le gana a glox en programas largos y pierde en los cortos: es el
-JIT.** jlox también es tree-walk, pero la JVM compila a código de máquina los
-métodos del intérprete que más se usan mientras el programa corre. La curva de
-escalado lo muestra: con fib(15), jlox tarda 29 ms contra 2,5 ms de glox (casi
-todo es arranque de la JVM, 22 ms); con fib(27) ya lo alcanza (78 ms contra
-92 ms). Lo mismo se ve en el uso de CPU: jlox usa entre 1,3 y 1,8 núcleos de
-CPU por segundo de reloj, porque el JIT y el GC corren en paralelo al programa;
-glox usa ~1,05. glox no tiene JIT: el código que ejecuta es el que compiló
-`go build`, así que su rendimiento es el mismo desde la primera línea. Esa es
-también la razón de que arranque en 2 ms y sea de los más rápidos en scripts
-cortos. El costo de la JVM aparece en memoria: jlox necesita 129 MB para fib(28)
-y cloxure (Clojure sobre la JVM) 333 MB, contra 13 MB de glox.
-
-**4. Cómo se implementa `return` importa, y mucho.** dlox es 66× más lento que
-glox en fib(28), pero apenas 1,1× en el `for` de 2 millones. La diferencia es
-que fib hace llamadas y el `for` no. dlox, cloxure, jlox y plox-php
-implementan `return` lanzando una excepción que atrapa la llamada, como plox.
-Para aislar ese costo corrimos el mismo bucle de 300.000 llamadas en dos
-versiones, una que devuelve el resultado con `return` y otra que lo acumula
-en una variable global sin `return`:
-
-| | glox | slox | plox | jlox | plox-php | cloxure | dlox |
+| | Node 24 | Python 3.15 | **glox** | Ruby 2.6 | Perl 5.34 | glox-parcial | plox |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Con `return` / sin `return` | **1,02×** | 1,01× | 1,05× | 1,35× | 1,57× | 5,1× | 9,4× |
+| `fib(28)` | 22,7 ms | 28,2 ms | **39,8 ms** | 52,3 ms | 74,4 ms | 146 ms | 8,45 s |
 
-En glox y en slox, `return` es un valor que se devuelve (el `returnSignal`
-de glox; un caso de `Result` en slox) y cuesta lo mismo que cualquier otra
-sentencia. En dlox, cada `throw` de Dart captura el stack de la llamada, y
-hacerlo una vez por cada llamada de Lox multiplica el costo por 9. En cloxure,
-la excepción es un `ex-info` de la JVM, con stack trace completo. jlox, en
-cambio, construye su excepción sin stack trace y por eso paga poco. En plox el
-efecto casi no se ve (1,05×) porque en CPython lanzar una excepción es barato
-comparado con todo lo demás que hace el intérprete. Esto confirma con números
-la decisión de diseño 2: usar `panic` o una excepción para el `return` no solo
-iba contra el estilo de Go, también habría sido medible en cada llamada.
+| | Node 24 | Perl 5.34 | Ruby 2.6 | **glox** | Python 3.15 | glox-parcial | plox |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `for` 2M | 23,1 ms | 40,7 ms | 60,3 ms | **69,7 ms** | 135 ms | 271 ms | 20,6 s |
 
-**5. Arranque: glox tarda 2,2 ms en ejecutar `print "ok";`**, contra 53 ms de
-plox, 22 ms de jlox y 199 ms de cloxure. Un binario de Go es un ejecutable
-nativo que trae su runtime (GC, scheduler) adentro y lo inicializa en
-microsegundos: no hay que cargar una máquina virtual ni módulos. Por eso los
-tres scripts originales de la primera comparativa (`fib`, `loops`,
-`closures`, de 7 a 36 ms en glox) miden en buena parte
-arranque, y por eso sumamos las versiones con más carga: con `loops.lox`
-(100.000 vueltas), dlox parece tan rápido como glox (24 ms contra 17 ms), y
-recién con 2 millones de vueltas se ve la diferencia real de ejecución.
+- **glox queda en el mismo rango que intérpretes de producción**: entre
+  Python y Ruby en `fib`, entre Ruby y Python en el loop. Son lenguajes con
+  décadas de optimización, pero también son, como glox, intérpretes de
+  bytecode. Node es otra categoría: V8 compila a código de máquina mientras
+  corre, y sus ~23 ms son casi todo arranque.
+- **Python es más rápido que glox en `fib` y 2 veces más lento en el `for`.**
+  En `fib.py`, `n` es una local, que CPython guarda en un arreglo. En
+  `loops.py`, `total` e `i` son variables de módulo, que CPython guarda en un
+  diccionario. Es la misma diferencia entre locales y globales que vimos en
+  glox, y la que vino a atacar la optimización de globales.
+- **plox es entre 150 y 300 veces más lento que Python ejecutando el mismo
+  algoritmo**, aunque está escrito en Python. Es el costo de interpretar un lenguaje arriba
+  de otro intérprete: cada operación de Lox se convierte en decenas de
+  operaciones de Python. glox paga un solo nivel de interpretación.
 
-**6. Lo que no se pudo medir.** rlox no termina `strings.lox`: entre 2.000 y
-4.000 iteraciones corta con un error interno (`UnexpectedValue`) de su VM, un
-bug de rlox que aparece cuando crece la cantidad de strings creados. loxx
-imprime los números con 6 cifras significativas (`2e+12` en vez de
-`1999999000000`); verificamos aparte que el valor calculado es exacto, así que
-sus corridas se cuentan como válidas. rlox reserva de entrada 4 GB de memoria
-virtual para su heap, y eso explica sus ~50 MB residentes aunque el programa no
-haga nada.
+### Resumen de los resultados
 
-**En una frase:** entre los intérpretes tree-walk, glox es el más rápido en
-todos los scripts cortos y en `counter`, y queda segundo detrás de jlox en los
-otros cuatro benchmarks largos, cuando el JIT de la JVM tiene tiempo de
-calentar. Contra la cátedra es 55–78× más rápido y usa entre 2,5 y 3 veces
-menos memoria. La brecha de 7–8× contra las implementaciones a bytecode se
-explica por las ~6 alocaciones y las búsquedas en mapas de cada llamada, que es
-justo lo que el Bloque 2 viene a sacar.
+La entrega final es 3,7 veces más rápida que la parcial, y casi todo sale de
+pasar del tree-walk a la VM: dejar de crear un entorno con un mapa por cada
+llamada y por cada bloque, y acceder a las variables por posición. La
+optimización suma otro 1,2× atacando el último acceso por nombre que quedaba
+en el camino caliente, las globales. Lo que nos separa ahora de las VMs en
+Rust y C++ ya no es el diseño sino la representación de los valores en Go, y
+lo que más pesa en los programas con objetos son las búsquedas por nombre en
+los mapas de campos y métodos.
+
+---
+
+## Programas de uso real
+
+### `examples/gastos.lox` — Resumen de gastos del mes
+
+Toma los gastos de un mes y produce un reporte: listado, total y promedio,
+subtotal y porcentaje por categoría, los tres gastos más grandes, los "gastos
+hormiga", alertas cuando una categoría supera su presupuesto y una proyección
+con inflación mensual. Lo elegimos porque es el tipo de cosa que uno termina
+haciendo en una planilla, y porque obliga a usar de todo: estructuras de
+datos, ordenamiento, funciones de orden superior y estado.
+
+La primera versión es de la entrega parcial y está armada solo con funciones:
+las listas eran cadenas de closures (`cons(cabeza, cola)`), un gasto era una
+closure que respondía por sus campos (`g("monto")`). Para la entrega final lo
+reescribimos con una clase `Gasto`, una clase `Presupuesto` (que lleva su
+propio acumulado y avisa cuando se pasa) y listas, y **la salida es
+exactamente la misma**, byte por byte: el golden de `tests/golden/gastos.out`
+no cambió. Fue la mejor prueba de clases y listas juntas. Lo que no se
+reemplazó son las closures que tenían sentido como closures: la proyección
+aplica `repetir(ajusteMensual, n)`, que compone la función consigo misma `n`
+veces.
+
+```text
+$ ./glox examples/gastos.lox
+=== Gastos de septiembre ===
+  día 1  Alquiler (vivienda): $450.000,00
+  día 2  Nafta (transporte): $35.000,00
+  ...
+Total: $719.811,74 en 15 gastos
+Promedio por gasto: $47.987,45
+
+=== Por categoría ===
+  vivienda: $450.000,00 (63%)
+  comida: $120.421,45 (17%)
+  ...
+=== Control de presupuesto ===
+  ALERTA día 27: comida se pasó del presupuesto de $100.000,00 (lleva $120.421,45)
+  ALERTA día 28: salidas se pasó del presupuesto de $40.000,00 (lleva $48.300,00)
+
+=== Proyección con 3% de inflación mensual ===
+  En 1 mes(es): $741.406,09
+  En 2 mes(es): $763.648,27
+  En 3 mes(es): $786.557,72
+```
+
+Como Lox no puede pasar un número a texto, los montos se formatean con
+aritmética (`pesos(12345.5)` devuelve `"$12.345,50"`), ahora con una lista
+de dígitos en vez de diez `if`.
+
+### `examples/banco.lox` — Cuentas bancarias con herencia
+
+En la entrega parcial, cada cuenta era una closure que respondía mensajes
+(`cuenta("extraer", 200)`): la idea de objeto armada con funciones. Ahora es
+una jerarquía de clases. `Cuenta` tiene el saldo, el historial (una lista) y
+las operaciones; las dos subclases cambian solo lo que las distingue:
+
+- `CuentaCorriente` pisa `puedeQuedarEn(saldo)` para permitir el descubierto,
+  y en el cierre de mes cobra mantenimiento.
+- `CajaDeAhorro` no admite descubierto y en el cierre de mes acredita
+  interés, reusando el `depositar` heredado.
+
+Las dos llaman a `super.init` y el programa recorre una lista de cuentas
+llamando a `cierreDeMes()`, que hace algo distinto en cada una:
+
+```text
+$ ./glox examples/banco.lox
+=== Operaciones del día ===
+  OK       Ana deposita 500
+  OK       Beto extrae 600 (usa descubierto)
+  RECHAZO  Beto extrae 200 (supera descubierto): fondos insuficientes
+  OK       Ana transfiere 300 a Beto
+  RECHAZO  Caja transfiere 50 a Ana: fondos insuficientes
+  RECHAZO  Ana extrae 1300 (caja de ahorro, sin descubierto): fondos insuficientes
+  RECHAZO  Ana deposita -10: el monto tiene que ser positivo
+
+=== Cierre de mes ===
+  OK       cierre de Ana
+  OK       cierre de Beto
+  RECHAZO  cierre de Caja chica: sin saldo positivo, no genera interés
+
+=== Saldos ===
+  Ana (caja de ahorro 12%): 1212
+  Beto (cuenta corriente): -130
+  Caja chica (caja de ahorro 12%): 0
+...
+```
+
+La salida completa de los tres programas de `examples/` está en
+`tests/golden/`, y los tests end-to-end verifican que no cambie.
+
+---
+
+## Limitaciones conocidas
+
+- **Hasta 256 constantes por función** (incluidos los nombres de variables
+  globales y de propiedades), y 256 locales y 256 variables capturadas,
+  porque los operandos son de un byte. Pasarse da un error de compilación
+  claro, no bytecode inválido. `clox` tiene el mismo límite.
+- **Las listas no tienen más operaciones que `len` y `push`**: no hay `pop`,
+  concatenación ni recorte, y los strings no se pueden indexar.
+- **No hay forma de pasar un número a texto** (no es parte de Lox), por eso
+  los programas de ejemplo lo hacen con aritmética.
+- El tree-walk no tiene clases ni listas (a propósito, ver
+  [Del tree-walk al bytecode](#del-tree-walk-al-bytecode)).
 
 ---
 
 ## Cómo trabajamos
 
-- **Un plan por fases alineado a las clases.** Dividimos el TP en fases, una
-  por semana de cursada (Fase 1 escaneo, Fase 2 parseo, Fase 3 ejecución y
-  control de flujo, Fase 4 funciones y resolver, Fase 5 cierre), y cada fase en
-  partes chicas con un criterio de "terminado" verificable. La regla fue no
-  implementar nada de una clase que todavía no se había dado: si sobraba
-  tiempo, iba a tests y documentación de lo ya visto.
+- **Diseñar antes de necesitarlo.** Antes de escribir código de clases,
+  escribimos el diseño completo de clases y herencia en bytecode (opcodes,
+  cómo se resuelven `this` y `super`, qué errores hay). Ahí se decidió también
+  cómo iban a ser las closures, porque `super` dependía de eso. Cuando llegó el
+  momento, el bytecode que salió fue el que habíamos escrito a mano, y quedó
+  como test.
 - **Una rama por tema y Pull Requests a `main`.** `scanning`, `interpreter`,
   `state`, `control-flow`, `functions`, `resolver`, `benchmarks` y
-  `demo-and-docs`, cada una integrada a `main` por PR (#1 a #9). Nos
-  repartimos las fases de a bloques: Federico hizo el setup, el parser, las
-  funciones y el resolver; Franco el scanner, el intérprete con estado y
-  control de flujo, y los benchmarks; el cierre (pruebas end-to-end, comparación
-  ampliada y este README) lo hicimos entre los dos.
-- **Commits chicos y descriptivos,** uno por parte del plan, en español.
-- **Cada parte cierra en verde:** `go build`, `go vet`, `gofmt -l .`,
-  `go test ./...` y, desde que hubo funciones, las pruebas de la cátedra.
+  `demo-and-docs` para la entrega parcial (PRs #1 a #9); `bytecode`,
+  `bytecode-tests`, `bytecode-variables`, `bytecode-funciones`,
+  `bytecode-clases` y `entrega-final` para la final (PRs #10 a #15).
+- **Commits chicos y descriptivos,** en español.
+- **Cada cambio cierra en verde:** `go build`, `go vet`, `gofmt -l .`,
+  `go test ./...` y las pruebas de la cátedra, sobre la VM y sobre el
+  tree-walk.
 - **Las decisiones se escriben cuando se toman.** Cada vez que había dos
-  caminos razonables (`panic` o error explícito en el parser, Visitor o
-  `type switch`, cómo implementar `return`), dejamos anotado cuál elegimos y
-  por qué. De ahí sale la sección de diferencias de este README.
-- **Lo que no salió a la primera también quedó registrado.** Por ejemplo, al
-  incorporar las pruebas de la cátedra notamos que `script.py` decide "Todo OK"
-  mirando solo stdout: con errores de parseo (que van a stderr) daba un falso
-  verde. Desde entonces revisamos la salida real de cada aserción, no solo el
-  veredicto del script. Y un test del resolver que suponíamos válido
-  (`{ var a = 1; { var a = a; } }`) resultó ser un error de verdad en Lox: se
-  corrigió el test, no el resolver.
+  caminos razonables (upvalues o celdas, recorrer la cadena de superclases o
+  copiar los métodos, métodos o nativas para las listas), dejamos anotado cuál
+  elegimos y por qué. De ahí salen las secciones de diferencias de este README.
+- **Medir antes de optimizar.** La optimización de las globales salió de un
+  perfil de CPU, no de una intuición, y se midió antes y después con los
+  mismos scripts.
