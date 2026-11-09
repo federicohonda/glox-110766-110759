@@ -1,0 +1,29 @@
+// Benchmark: clases y métodos
+// 1.000.000 de llamadas a un método que lee y escribe un campo, más 100.000
+// instancias nuevas (cada una con su init). Mide la búsqueda de métodos, el
+// acceso a campos y la instanciación. Se agregó en la entrega final, con las
+// clases: la entrega parcial no lo puede correr. Sin herencia a propósito:
+// rlox no encuentra los métodos heredados, y así puede correrlo igual.
+// resultado: 5000950000
+
+class Contador {
+    init() {
+        this.n = 0;
+    }
+
+    sumar(x) {
+        this.n = this.n + x;
+        return this;
+    }
+}
+
+var c = Contador();
+for (var i = 0; i < 1000000; i = i + 1) {
+    c.sumar(1);
+}
+
+var total = 0;
+for (var i = 0; i < 100000; i = i + 1) {
+    total = total + Contador().sumar(i).n;
+}
+print c.n + total;

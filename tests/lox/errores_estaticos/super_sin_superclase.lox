@@ -1,0 +1,9 @@
+// exit: 65
+// stderr: [línea 6] Error semántico en 'super': no se puede usar 'super' en una clase sin superclase.
+// stderr: [línea 9] Error semántico en 'super': no se puede usar 'super' fuera de una clase.
+class A {
+  m() {
+    return super.m();
+  }
+}
+print super.m;

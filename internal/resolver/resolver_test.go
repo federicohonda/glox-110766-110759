@@ -215,6 +215,16 @@ func TestResolveErrors(t *testing.T) {
 		{"this fuera de una clase", "print this;", "no se puede usar 'this' fuera de una clase"},
 		{"this en función fuera de clase", "fun f() { print this; }", "no se puede usar 'this' fuera de una clase"},
 		{"retornar valor en init", "class Foo { init() { return 1; } }", "no se puede retornar un valor desde un inicializador"},
+		{"una clase que hereda de sí misma", "class A < A {}", "una clase no puede heredar de sí misma"},
+		{"super fuera de una clase", "print super.m;", "no se puede usar 'super' fuera de una clase"},
+		{"super en una función fuera de clase", "fun f() { return super.m(); }", "no se puede usar 'super' fuera de una clase"},
+		{"super en una clase sin superclase", "class A { m() { return super.m(); } }", "no se puede usar 'super' en una clase sin superclase"},
+		{
+			// La subclase de afuera no habilita `super` en una clase anidada sin superclase.
+			"super en una clase anidada sin superclase",
+			"class A {} class B < A { m() { class C { n() { return super.m(); } } } }",
+			"no se puede usar 'super' en una clase sin superclase",
+		},
 	}
 
 	for _, c := range cases {
@@ -243,6 +253,9 @@ func TestResolveAllowedCases(t *testing.T) {
 		{"return vacío en init", "class Foo { init() { return; } }"},
 		{"uso válido de this en método", "class Foo { bar() { print this; } }"},
 		{"return con valor en método regular", "class Foo { bar() { return 1; } }"},
+		{"super en una subclase", "class A { m() {} } class B < A { m() { super.m(); } }"},
+		{"super en una función anidada en un método", "class A { m() {} } class B < A { m() { fun f() { super.m(); } f(); } }"},
+		{"listas e índices", "var a = [1, [2]]; a[1][0] = a[0]; { var b = [a]; print b[0]; }"},
 	}
 
 	for _, c := range cases {

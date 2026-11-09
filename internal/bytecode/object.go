@@ -1,6 +1,9 @@
 package bytecode
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Function es una función ya compilada: su propio chunk más lo que la VM
 // necesita saber para invocarla. Es un valor de tiempo de compilación (vive
@@ -68,4 +71,48 @@ type BoundMethod struct {
 
 func (b *BoundMethod) String() string {
 	return b.Method.String()
+}
+
+// List es una lista de Lox: un slice de Go que crece con push. Va siempre
+// por puntero, así dos variables que apuntan a la misma lista ven los mismos
+// cambios y `==` compara identidad, igual que entre instancias.
+type List struct {
+	Items []Value
+}
+
+func (l *List) String() string {
+	return l.format(map[*List]bool{})
+}
+
+// format imprime los elementos como los imprimiría print. seen corta el caso
+// de una lista que se contiene a sí misma, que si no recursaría para siempre.
+func (l *List) format(seen map[*List]bool) string {
+	if seen[l] {
+		return "[...]"
+	}
+	seen[l] = true
+	defer delete(seen, l)
+	parts := make([]string, len(l.Items))
+	for i, item := range l.Items {
+		if inner, ok := item.(*List); ok {
+			parts[i] = inner.format(seen)
+		} else {
+			parts[i] = formatValue(item)
+		}
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+// Native es una función de la biblioteca estándar, escrita en Go. La VM la
+// llama directo, sin abrir un frame: recibe los argumentos que están en la
+// pila y devuelve el resultado o un error (que la VM convierte en un error de
+// runtime con la línea de la llamada).
+type Native struct {
+	Name  string
+	Arity int
+	Fn    func(args []Value) (Value, error)
+}
+
+func (n *Native) String() string {
+	return fmt.Sprintf("<fn nativa %s>", n.Name)
 }

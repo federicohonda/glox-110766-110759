@@ -352,6 +352,20 @@ func exprLine(expr ast.Expr) int {
 		return e.Name.Line
 	case *ast.Call:
 		return e.Paren.Line
+	case *ast.Get:
+		return e.Name.Line
+	case *ast.Set:
+		return e.Name.Line
+	case *ast.This:
+		return e.Keyword.Line
+	case *ast.Super:
+		return e.Keyword.Line
+	case *ast.ListLiteral:
+		return e.Bracket.Line
+	case *ast.Index:
+		return e.Bracket.Line
+	case *ast.SetIndex:
+		return e.Bracket.Line
 	}
 	return 1
 }
@@ -456,6 +470,29 @@ func (c *compiler) expression(expr ast.Expr) error {
 			c.chunk.Write(byte(len(e.Arguments)), line)
 			return nil
 		}
+		if super, ok := e.Callee.(*ast.Super); ok {
+			// `this` va primero para quedar en el slot 0 del frame del método;
+			// la superclase, arriba de los argumentos, la consume OpSuperInvoke.
+			if err := c.variable(thisToken(line), false); err != nil {
+				return err
+			}
+			for _, arg := range e.Arguments {
+				if err := c.expression(arg); err != nil {
+					return err
+				}
+			}
+			if err := c.variable(super.Keyword, false); err != nil {
+				return err
+			}
+			nameIdx, err := c.nameConstant(super.Method.Lexeme, line)
+			if err != nil {
+				return err
+			}
+			c.emit(OpSuperInvoke, line)
+			c.chunk.Write(byte(nameIdx), line)
+			c.chunk.Write(byte(len(e.Arguments)), line)
+			return nil
+		}
 		// Regla de oro: el callee y los argumentos se evalúan, en orden, antes
 		// de chequear si el valor es invocable o si la aridad coincide.
 		if err := c.expression(e.Callee); err != nil {
@@ -473,6 +510,50 @@ func (c *compiler) expression(expr ast.Expr) error {
 
 	case *ast.This:
 		return c.variable(e.Keyword, false)
+
+	case *ast.Super:
+		line := e.Keyword.Line
+		if err := c.variable(thisToken(line), false); err != nil {
+			return err
+		}
+		if err := c.variable(e.Keyword, false); err != nil {
+			return err
+		}
+		nameIdx, err := c.nameConstant(e.Method.Lexeme, line)
+		if err != nil {
+			return err
+		}
+		c.emitByte(OpGetSuper, nameIdx, line)
+		return nil
+
+	case *ast.ListLiteral:
+		for _, element := range e.Elements {
+			if err := c.expression(element); err != nil {
+				return err
+			}
+		}
+		// El parser ya rechaza más de 255 elementos, así que entran en el byte.
+		c.emitByte(OpList, len(e.Elements), e.Bracket.Line)
+		return nil
+
+	case *ast.Index:
+		if err := c.expression(e.Object); err != nil {
+			return err
+		}
+		if err := c.expression(e.Index); err != nil {
+			return err
+		}
+		c.emit(OpGetIndex, e.Bracket.Line)
+		return nil
+
+	case *ast.SetIndex:
+		for _, sub := range []ast.Expr{e.Object, e.Index, e.Value} {
+			if err := c.expression(sub); err != nil {
+				return err
+			}
+		}
+		c.emit(OpSetIndex, e.Bracket.Line)
+		return nil
 
 	case *ast.Get:
 		line := e.Name.Line
@@ -574,6 +655,30 @@ func (c *compiler) classDeclaration(decl *ast.ClassDecl) error {
 		c.emitByte(OpDefineGlobal, nameIdx, line)
 	}
 
+	// Con superclase: se apila la superclase, que queda como la local
+	// escondida `super` de un scope que envuelve a los métodos, y OpInherit
+	// le copia sus métodos a la clase nueva. Un método que usa `super` la
+	// captura como a cualquier otra variable.
+	if decl.Superclass != nil {
+		if err := c.variable(decl.Superclass.Name, false); err != nil {
+			return err
+		}
+		c.beginScope()
+		if len(c.locals) >= maxLocals {
+			return tooManyLocals(line)
+		}
+		slot := len(c.locals)
+		captured := c.captured[decl.Superclass]
+		c.locals = append(c.locals, local{name: "super", depth: c.scopeDepth, captured: captured})
+		if err := c.variable(decl.Name, false); err != nil {
+			return err
+		}
+		c.emit(OpInherit, decl.Superclass.Name.Line)
+		if captured {
+			c.emitByte(OpBox, slot, line)
+		}
+	}
+
 	// Cargar la clase en la cima del stack para asociarle los métodos:
 	if err := c.variable(decl.Name, false); err != nil {
 		return err
@@ -596,7 +701,16 @@ func (c *compiler) classDeclaration(decl *ast.ClassDecl) error {
 
 	// Desapilar la clase que se cargó para adjuntar los métodos:
 	c.emit(OpPop, line)
+	if decl.Superclass != nil {
+		c.endScope()
+	}
 	return nil
+}
+
+// thisToken arma el token de `this` para un acceso que no lo escribió el
+// usuario: `super.m()` necesita al receptor aunque en el código no aparezca.
+func thisToken(line int) token.Token {
+	return token.Token{Type: token.THIS, Lexeme: "this", Line: line}
 }
 
 // function compila la declaración a un chunk propio, con un compilador nuevo

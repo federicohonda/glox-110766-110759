@@ -52,13 +52,13 @@ func (c *Chunk) DisassembleInstruction(offset int) (string, int) {
 
 	switch op := OpCode(c.Code[offset]); op {
 	case OpConstant, OpDefineGlobal, OpGetGlobal, OpSetGlobal,
-		OpClass, OpMethod, OpGetProperty, OpSetProperty:
+		OpClass, OpMethod, OpGetProperty, OpSetProperty, OpGetSuper:
 		return c.constantInstruction(&sb, op, offset)
 
-	case OpInvoke:
+	case OpInvoke, OpSuperInvoke:
 		return c.invokeInstruction(&sb, op, offset)
 
-	case OpGetLocal, OpSetLocal, OpBox, OpGetCell, OpSetCell, OpGetCaptured, OpSetCaptured, OpCall:
+	case OpGetLocal, OpSetLocal, OpBox, OpGetCell, OpSetCell, OpGetCaptured, OpSetCaptured, OpCall, OpList:
 		return c.byteInstruction(&sb, op, offset)
 
 	case OpClosure:
@@ -71,7 +71,8 @@ func (c *Chunk) DisassembleInstruction(offset int) (string, int) {
 		return c.loopInstruction(&sb, op, offset)
 
 	case OpAdd, OpSubtract, OpMultiply, OpDivide, OpModulo, OpNegate, OpPop, OpPrint, OpReturn,
-		OpNot, OpEqual, OpGreater, OpGreaterEqual, OpLess, OpLessEqual:
+		OpNot, OpEqual, OpGreater, OpGreaterEqual, OpLess, OpLessEqual,
+		OpInherit, OpGetIndex, OpSetIndex:
 		sb.WriteString(op.String())
 		return sb.String(), offset + 1
 
@@ -187,6 +188,9 @@ func (c *Chunk) invokeInstruction(sb *strings.Builder, op OpCode, offset int) (s
 func formatValue(value Value) string {
 	if value == nil {
 		return "nil"
+	}
+	if l, ok := value.(*List); ok {
+		return l.format(map[*List]bool{})
 	}
 	return fmt.Sprintf("%v", value)
 }

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="724" height="354" viewBox="0 0 724 354" role="img" aria-label="Memoria residente pico en fib(28)"><title>Memoria residente pico en fib(28)</title>
+<style>
+  svg { --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#8a8984; --grid:#e6e5e1;
+        --glox:#2a78d6; --bytecode:#eb6834; --other:#86857f; }
+  @media (prefers-color-scheme: dark) {
+    svg { --surface:#1a1a19; --ink:#ffffff; --ink2:#c3c2b7; --muted:#8f8e86; --grid:#383835;
+          --glox:#3987e5; --bytecode:#d95926; --other:#7d7c76; }
+  }
+  text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: var(--ink2); font-size: 12px; }
+  .title { fill: var(--ink); font-size: 15px; font-weight: 600; }
+  .subtitle { fill: var(--ink2); font-size: 12px; }
+  .panel { fill: var(--ink); font-size: 13px; font-weight: 600; }
+  .label { fill: var(--ink); }
+  .label.glox { font-weight: 700; }
+  .value { fill: var(--ink2); font-size: 11px; }
+  .tick { fill: var(--muted); font-size: 11px; }
+  .grid { stroke: var(--grid); stroke-width: 1; }
+  .stem { stroke: var(--grid); stroke-width: 2; }
+  .glox { fill: var(--glox); stroke: var(--glox); }
+  .bytecode { fill: var(--bytecode); stroke: var(--bytecode); }
+  .other { fill: var(--other); stroke: var(--other); }
+  .line { fill: none; stroke-width: 2; }
+  .line.glox { stroke-width: 3; }
+  .ring { stroke: var(--surface); stroke-width: 2; }
+  .bg { fill: var(--surface); }
+</style>
+<rect class="bg" width="724" height="354" rx="8"/><text class="title" x="24" y="30">Memoria residente pico en fib(28)</text><text class="subtitle" x="24" y="50">Máximo RSS del proceso: incluye el runtime de cada lenguaje, no solo los datos del programa.</text><line class="grid" x1="114.0" y1="70" x2="114.0" y2="310"/><text class="tick" x="114.0" y="326" text-anchor="middle">0 MB</text><line class="grid" x1="244.0" y1="70" x2="244.0" y2="310"/><text class="tick" x="244.0" y="326" text-anchor="middle">100 MB</text><line class="grid" x1="374.0" y1="70" x2="374.0" y2="310"/><text class="tick" x="374.0" y="326" text-anchor="middle">200 MB</text><line class="grid" x1="504.0" y1="70" x2="504.0" y2="310"/><text class="tick" x="504.0" y="326" text-anchor="middle">300 MB</text><line class="grid" x1="634.0" y1="70" x2="634.0" y2="310"/><text class="tick" x="634.0" y="326" text-anchor="middle">400 MB</text><text class="label" x="102" y="93.0" text-anchor="end">loxx</text><path class="bytecode" d="M114,82.0 h1.2 a1.1578125,1.1578125 0 0 1 1.1578125,1.1578125 v11.7 a1.1578125,1.1578125 0 0 1 -1.1578125,1.1578125 h-1.2 Z"/><text class="value" x="124.3" y="93.0">2 MB</text><text class="label" x="102" y="119.0" text-anchor="end">slox</text><path class="other" d="M114,108.0 h3.9 a3.859375,3.859375 0 0 1 3.859375,3.859375 v6.3 a3.859375,3.859375 0 0 1 -3.859375,3.859375 h-3.9 Z"/><text class="value" x="129.7" y="119.0">6 MB</text><text class="label glox" x="102" y="145.0" text-anchor="end">glox</text><path class="glox" d="M114,134.0 h12.6 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-12.6 Z"/><text class="value" x="138.6" y="145.0">13 MB</text><text class="label" x="102" y="171.0" text-anchor="end">dlox</text><path class="other" d="M114,160.0 h20.5 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-20.5 Z"/><text class="value" x="146.5" y="171.0">19 MB</text><text class="label" x="102" y="197.0" text-anchor="end">plox-php</text><path class="other" d="M114,186.0 h29.8 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-29.8 Z"/><text class="value" x="155.8" y="197.0">26 MB</text><text class="label" x="102" y="223.0" text-anchor="end">plox</text><path class="other" d="M114,212.0 h37.9 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-37.9 Z"/><text class="value" x="163.9" y="223.0">32 MB</text><text class="label" x="102" y="249.0" text-anchor="end">rlox</text><path class="bytecode" d="M114,238.0 h60.6 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-60.6 Z"/><text class="value" x="186.6" y="249.0">50 MB</text><text class="label" x="102" y="275.0" text-anchor="end">jlox</text><path class="other" d="M114,264.0 h163.1 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-163.1 Z"/><text class="value" x="289.1" y="275.0">129 MB</text><text class="label" x="102" y="301.0" text-anchor="end">cloxure</text><path class="other" d="M114,290.0 h429.1 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-429.1 Z"/><text class="value" x="555.1" y="301.0">333 MB</text></svg>

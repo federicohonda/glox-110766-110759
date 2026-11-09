@@ -1,0 +1,7 @@
+// exit: 70
+// stderr: [línea 6] Error en tiempo de ejecución en '<': la superclase debe ser una clase, se obtuvo: 3
+var NoEsClase = 3;
+print "antes"; // expect: antes
+
+class B < NoEsClase {}
+print "después";

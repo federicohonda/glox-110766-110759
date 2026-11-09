@@ -1,0 +1,32 @@
+=== Operaciones del día ===
+  OK       Ana deposita 500
+  OK       Beto extrae 600 (usa descubierto)
+  RECHAZO  Beto extrae 200 (supera descubierto): fondos insuficientes
+  OK       Ana transfiere 300 a Beto
+  RECHAZO  Caja transfiere 50 a Ana: fondos insuficientes
+  RECHAZO  Ana extrae 1300 (caja de ahorro, sin descubierto): fondos insuficientes
+  RECHAZO  Ana deposita -10: el monto tiene que ser positivo
+
+=== Cierre de mes ===
+  OK       cierre de Ana
+  OK       cierre de Beto
+  RECHAZO  cierre de Caja chica: sin saldo positivo, no genera interés
+
+=== Saldos ===
+  Ana (caja de ahorro 12%): 1212
+  Beto (cuenta corriente): -130
+  Caja chica (caja de ahorro 12%): 0
+
+=== Historial ===
+  Ana (3 movimientos)
+    - apertura
+    - depósito +500
+    - transferencia a Beto -300
+    - interés +12
+  Beto (3 movimientos)
+    - apertura
+    - extracción -600
+    - transferencia de Ana +300
+    - mantenimiento -30
+  Caja chica (0 movimientos)
+    - apertura

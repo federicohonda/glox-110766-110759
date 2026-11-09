@@ -1,0 +1,153 @@
+// Simulador bancario con clases y herencia
+//
+// En la entrega parcial cada cuenta era una closure que respondía "mensajes"
+// (cuenta("extraer", 200)). Ahora es una clase, y los dos tipos de cuenta son
+// subclases que cambian solo lo que las distingue:
+//   - CuentaCorriente puede quedar en negativo hasta su descubierto, y cobra
+//     mantenimiento a fin de mes.
+//   - CajaDeAhorro no admite descubierto, y acredita interés a fin de mes.
+// El historial de cada cuenta es una lista.
+//
+// Uso: ./glox examples/banco.lox
+
+class Cuenta {
+    init(titular, saldo) {
+        this.titular = titular;
+        this.saldo = saldo;
+        this.historial = ["apertura"];
+    }
+
+    // Cada operación devuelve nil si salió bien, o el motivo del rechazo.
+    depositar(monto, detalle) {
+        if (monto <= 0) return "el monto tiene que ser positivo";
+        this.saldo = this.saldo + monto;
+        push(this.historial, detalle + " +" + texto(monto));
+        return nil;
+    }
+
+    extraer(monto, detalle) {
+        if (monto <= 0) return "el monto tiene que ser positivo";
+        if (!this.puedeQuedarEn(this.saldo - monto)) return "fondos insuficientes";
+        this.saldo = this.saldo - monto;
+        push(this.historial, detalle + " -" + texto(monto));
+        return nil;
+    }
+
+    // Lo que cambia entre tipos de cuenta: hasta dónde puede bajar el saldo.
+    puedeQuedarEn(saldo) {
+        return saldo >= 0;
+    }
+
+    cierreDeMes() {
+        return nil;
+    }
+
+    tipo() {
+        return "cuenta";
+    }
+
+    resumen() {
+        return this.titular + " (" + this.tipo() + "): " + texto(this.saldo);
+    }
+}
+
+class CuentaCorriente < Cuenta {
+    init(titular, saldo, descubierto) {
+        super.init(titular, saldo);
+        this.descubierto = descubierto;
+    }
+
+    puedeQuedarEn(saldo) {
+        return saldo >= -this.descubierto;
+    }
+
+    // El mantenimiento se cobra aunque deje la cuenta más allá del
+    // descubierto: no es una extracción del titular.
+    cierreDeMes() {
+        this.saldo = this.saldo - 30;
+        push(this.historial, "mantenimiento -30");
+        return nil;
+    }
+
+    tipo() {
+        return "cuenta corriente";
+    }
+}
+
+class CajaDeAhorro < Cuenta {
+    init(titular, saldo, tasaAnual) {
+        super.init(titular, saldo);
+        this.tasaAnual = tasaAnual;
+    }
+
+    cierreDeMes() {
+        if (this.saldo <= 0) return "sin saldo positivo, no genera interés";
+        return this.depositar(this.saldo * this.tasaAnual / 100 / 12, "interés");
+    }
+
+    tipo() {
+        return "caja de ahorro " + texto(this.tasaAnual) + "%";
+    }
+}
+
+// Lox no pasa números a texto: alcanza con enteros para este programa.
+var DIGITOS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+fun texto(n) {
+    if (n < 0) return "-" + texto(-n);
+    if (n < 10) return DIGITOS[n];
+    return texto((n - n % 10) / 10) + DIGITOS[n % 10];
+}
+
+// Una transferencia son dos operaciones que tienen que salir las dos o
+// ninguna: si la extracción falla, no se deposita nada.
+fun transferir(origen, destino, monto) {
+    var error = origen.extraer(monto, "transferencia a " + destino.titular);
+    if (error != nil) return error;
+    return destino.depositar(monto, "transferencia de " + origen.titular);
+}
+
+fun informar(descripcion, error) {
+    if (error == nil) {
+        print "  OK       " + descripcion;
+    } else {
+        print "  RECHAZO  " + descripcion + ": " + error;
+    }
+}
+
+var ana = CajaDeAhorro("Ana", 1000, 12);
+var beto = CuentaCorriente("Beto", 200, 500);
+var caja = CajaDeAhorro("Caja chica", 0, 12);
+var cuentas = [ana, beto, caja];
+
+print "=== Operaciones del día ===";
+informar("Ana deposita 500", ana.depositar(500, "depósito"));
+informar("Beto extrae 600 (usa descubierto)", beto.extraer(600, "extracción"));
+informar("Beto extrae 200 (supera descubierto)", beto.extraer(200, "extracción"));
+informar("Ana transfiere 300 a Beto", transferir(ana, beto, 300));
+informar("Caja transfiere 50 a Ana", transferir(caja, ana, 50));
+informar("Ana extrae 1300 (caja de ahorro, sin descubierto)", ana.extraer(1300, "extracción"));
+informar("Ana deposita -10", ana.depositar(-10, "depósito"));
+
+// La misma llamada hace algo distinto según la clase de cada cuenta.
+print "";
+print "=== Cierre de mes ===";
+for (var i = 0; i < len(cuentas); i = i + 1) {
+    informar("cierre de " + cuentas[i].titular, cuentas[i].cierreDeMes());
+}
+
+print "";
+print "=== Saldos ===";
+for (var i = 0; i < len(cuentas); i = i + 1) {
+    print "  " + cuentas[i].resumen();
+}
+
+// Cada cuenta tiene su propio historial: las instancias no comparten estado.
+print "";
+print "=== Historial ===";
+for (var i = 0; i < len(cuentas); i = i + 1) {
+    var c = cuentas[i];
+    print "  " + c.titular + " (" + texto(len(c.historial) - 1) + " movimientos)";
+    for (var j = 0; j < len(c.historial); j = j + 1) {
+        print "    - " + c.historial[j];
+    }
+}

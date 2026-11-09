@@ -1,7 +1,7 @@
 # Benchmarks de glox
 
-Esta carpeta tiene todo lo necesario para medir glox y compararlo contra otras
-implementaciones de Lox: los scripts, las herramientas para compilar las otras
+Esta carpeta tiene todo lo necesario para medir glox, compararlo contra otras
+implementaciones de Lox y contra sus propias versiones anteriores: los scripts, las herramientas para compilar las otras
 implementaciones, correr las mediciones y generar gráficos, y los resultados
 versionados. **El análisis de los resultados está en el [README principal](../README.md#benchmarks)**;
 acá está el detalle de cómo se mide y cómo reproducirlo.
@@ -24,17 +24,21 @@ acá está el detalle de cómo se mide y cómo reproducirlo.
 | Archivo | Qué es |
 |---|---|
 | `*.lox` | Los scripts que se miden. Cada uno declara su resultado con `// resultado: N`. |
-| `setup_impls.sh` | Clona (si hace falta) y compila las otras 8 implementaciones de Lox. Genera `.build/impls.tsv` con el comando para correr cada una. |
+| `setup_impls.sh` | Clona (si hace falta) y compila las otras 8 implementaciones de Lox, glox y dos versiones anteriores de glox (desde el historial del repo). Genera `.build/impls.tsv` con el comando para correr cada una. |
 | `run_benchmarks.py` | Corre cada script con cada implementación, valida la salida y guarda todas las muestras en `results/results.json`. |
 | `plot.py` | Lee `results/results.json` y genera los gráficos SVG y `results/RESULTS.md` con todas las tablas. |
+| `run_otros_lenguajes.sh` | Las mismas ideas de `fib_grande` y `loops_grande` escritas en Python, Ruby, JavaScript y Perl (`otros_lenguajes/`), medidas con `hyperfine` contra glox. Deja `results/otros_lenguajes.md`. |
 | `run_comparison.sh` | La comparativa original glox vs plox (solo Linux, usa GNU `time -v`). Se conserva por la corrida histórica de la sección 7. |
-| `results/` | Resultados de la última corrida: `results.json` (muestras crudas), `RESULTS.md` (tablas), `*.svg` (gráficos), `go-bench.txt` (benchmarks de Go). |
+| `results/` | Resultados de la última corrida: `results.json` (muestras crudas), `RESULTS.md` (tablas), `*.svg` (gráficos), `otros_lenguajes.md` y `go-bench.txt` (benchmarks de Go). Los de la entrega parcial quedaron en [`../entrega-parcial/resultados/`](../entrega-parcial/resultados/). |
 | `.impls/`, `.build/` | Repos clonados y binarios compilados. No se versionan (`.gitignore`). |
 
 ## 2. Scripts de benchmark
 
-Todos usan solo Lox estándar (sin `%`, sin clases, sin funciones nativas como
-`clock()`), para que corran igual en todas las implementaciones.
+Todos usan solo Lox estándar (sin `%`, sin listas, sin funciones nativas como
+`clock()`), para que corran igual en todas las implementaciones. Los nueve
+primeros son los de la entrega parcial y no se tocaron, para que las
+comparaciones entre etapas tengan sentido. `metodos.lox` se sumó en la entrega
+final y es el único con clases.
 
 | Script | Qué estresa | Carga | Resultado |
 |---|---|---|---|
@@ -47,6 +51,12 @@ Todos usan solo Lox estándar (sin `%`, sin clases, sin funciones nativas como
 | `calls.lox` | Llamadas no recursivas: costo fijo de cada llamada | 2.000.000 llamadas a una función hoja | `500000500000` |
 | `counter.lox` | Leer y escribir una variable capturada por una closure | 1.000.000 llamadas | `1000000` |
 | `strings.lox` | Crear strings nuevos por concatenación y compararlos | 1.000.000 concatenaciones | `200000` |
+| `metodos.lox` | Llamadas a métodos, acceso a campos e instanciación | 1.000.000 de llamadas + 100.000 instancias | `5000950000` |
+
+`metodos.lox` no usa herencia a propósito: rlox no encuentra los métodos
+heredados (corta con `UndefinedProperty`), y así puede correrlo igual. Lo
+corren 7 de las 11: plox no tiene clases, en plox-php falla `this` adentro de
+los métodos, y glox-parcial y glox-vm-sin-opt son anteriores a las clases.
 
 `fib`, `loops` y `closures` son los scripts originales de la primera
 comparativa y se dejaron con su carga original. En una máquina rápida, glox
@@ -62,7 +72,9 @@ arranque en cada implementación.
 
 | Nombre | Lenguaje | Estrategia | Repositorio | Cómo se compila |
 |---|---|---|---|---|
-| **glox** | Go | tree-walk | este repo | `go build` |
+| **glox** | Go | AST → bytecode + VM | este repo | `go build` |
+| glox-parcial | Go | tree-walk | este repo, commit `6f06574` (entrega parcial) | `git archive` + `go build` |
+| glox-vm-sin-opt | Go | AST → bytecode + VM | este repo, commit `94642a4` (VM antes de la optimización de globales) | `git archive` + `go build` |
 | rlox | Rust | AST → bytecode + VM | [Darksecond/lox](https://github.com/Darksecond/lox) | `cargo build --release -p lox` |
 | slox | Swift | tree-walk | [alexito4/slox](https://github.com/alexito4/slox) | `swift build -c release` (con parche, ver abajo) |
 | jlox | Java | tree-walk | [ryanq/jlox](https://github.com/ryanq/jlox) | `javac` |
@@ -108,7 +120,7 @@ brew install go rust php openjdk leiningen cmake uv dart-sdk
 Todos los comandos se corren desde la raíz del repo (`glox-110766-110759/`).
 
 ```bash
-# 1. Clonar y compilar las 9 implementaciones (glox incluida).
+# 1. Clonar y compilar las 11 (glox y sus dos versiones anteriores incluidas).
 #    Deja los repos en benchmarks/.impls y los binarios en benchmarks/.build.
 ./benchmarks/setup_impls.sh
 
@@ -117,9 +129,13 @@ IMPLS_DIR=~/lox-impls ./benchmarks/setup_impls.sh
 #    Para recompilar solo algunas (el resto de impls.tsv se conserva):
 ONLY=glox,rlox ./benchmarks/setup_impls.sh
 
-# 2. Medir. Tarda alrededor de 30 minutos con las 9 implementaciones,
+# 2. Medir. Tarda alrededor de 40 minutos con las 11 implementaciones,
 #    sobre todo por plox y cloxure.
 python3 benchmarks/run_benchmarks.py
+
+#    La comparación contra otros lenguajes (necesita hyperfine, python3,
+#    ruby, node y perl):
+./benchmarks/run_otros_lenguajes.sh
 
 #    Variantes útiles:
 python3 benchmarks/run_benchmarks.py --only glox,plox            # solo algunas
@@ -133,8 +149,7 @@ python3 benchmarks/plot.py
 
 `run_benchmarks.py` **actualiza** `results/results.json` en vez de pisarlo: si
 se vuelve a correr con `--only glox`, solo se reemplazan las mediciones de glox.
-Esto es lo que se va a usar en el Bloque 2 para sumar la versión a bytecode
-sin tener que re-medir todo. Ojo: mezclar mediciones de máquinas distintas en
+Ojo: mezclar mediciones de máquinas distintas en
 el mismo JSON invalida la comparación.
 
 ### Solo glox, sin instalar nada más
@@ -165,7 +180,7 @@ time ./glox benchmarks/calls.lox        # 5.000005e+11
   valor numérico (glox imprime `4.99995e+09`, jlox `4.99995E9`, plox
   `4999950000.0`: son el mismo número). Una implementación que da mal el
   resultado se marca como inválida y no aparece en los gráficos.
-- **Misma máquina para todo:** las 9 implementaciones se miden en la misma
+- **Misma máquina para todo:** las 11 implementaciones se miden en la misma
   corrida, en la misma máquina y sin otras cargas pesadas en paralelo. Los
   datos de la máquina quedan guardados en `results/results.json`.
 
@@ -178,7 +193,8 @@ depende del tamaño del programa: la curva de escalado lo muestra.
 ## 6. Benchmarks unitarios en Go
 
 Miden cada etapa del pipeline por separado, con `testing.B`, sin el costo de
-arranque del proceso:
+arranque del proceso. Los del intérprete y los de la VM corren los mismos
+programas, así que se pueden comparar fila a fila:
 
 ```bash
 go test -run '^$' -bench . -benchmem ./internal/...
@@ -190,28 +206,40 @@ go test -run '^$' -bench . -benchmem ./internal/...
 | `scanner` | `BenchmarkScanKeywords` | Escaneo denso de keywords, identificadores, strings y números |
 | `parser` | `BenchmarkParseExpressions` | Armar el AST de expresiones con todos los niveles de precedencia |
 | `parser` | `BenchmarkParseFunctions` | Parsear declaraciones de funciones con bloques y condicionales |
-| `interpreter` | `BenchmarkFibRecursive` | Ejecutar `fib(15)` (el scan/parse/resolve queda afuera del timer) |
-| `interpreter` | `BenchmarkLoopIntensive` | Bucle `for` de 10.000 iteraciones |
-| `interpreter` | `BenchmarkClosureCounter` | 1.000 llamadas a una closure con variable capturada |
-| `interpreter` | `BenchmarkPipelineEndToEnd` | scan → parse → resolve → interpret de un programa chico |
+| `interpreter` / `bytecode` | `BenchmarkFibRecursive` / `BenchmarkVMFibRecursive` | Ejecutar `fib(15)` (scan/parse/resolve/compile quedan afuera del timer) |
+| `interpreter` / `bytecode` | `BenchmarkLoopIntensive` / `BenchmarkVMLoopIntensive` | Bucle `for` de 10.000 iteraciones sobre una global |
+| `interpreter` / `bytecode` | `BenchmarkClosureCounter` / `BenchmarkVMClosureCounter` | 1.000 llamadas a una closure con variable capturada |
+| `bytecode` | `BenchmarkVMCalls` | 10.000 llamadas a una función hoja de dos parámetros |
+| `interpreter` / `bytecode` | `BenchmarkPipelineEndToEnd` / `BenchmarkVMPipelineEndToEnd` | El pipeline completo de un programa chico, compilación incluida en la VM |
 
-Resultados de la última corrida en `results/go-bench.txt`.
+Resultados de la última corrida en `results/go-bench.txt`. Mediana de 5
+corridas (`-count 5`) en Apple M5:
 
-Mediana de 5 corridas (`-count 5`) en Apple M5:
+| Benchmark | Tree-walk | VM | Tree-walk: memoria / alocaciones | VM: memoria / alocaciones |
+|---|---:|---:|---:|---:|
+| `fib(15)` (1.973 llamadas) | 282 µs | 72.9 µs | 760.7 KB / 12.453 | 26.3 KB / 2.598 |
+| `for` de 10.000 vueltas | 1.35 ms | 340 µs | 1407.2 KB / 60.008 | 161.7 KB / 20.010 |
+| Closure, 1.000 llamadas | 176 µs | 46.2 µs | 220.1 KB / 9.015 | 21.2 KB / 2.016 |
+| Pipeline completo | 29.2 µs | 8.9 µs | 64.3 KB / 1.173 | 20.8 KB / 323 |
+| 10.000 llamadas | — | 475 µs | — | 161.7 KB / 20.012 |
 
 | Benchmark | Tiempo/op | Memoria/op | Alocaciones/op |
 |---|---:|---:|---:|
-| `BenchmarkScanArithmetic` | 17.0 µs | 123.2 KB | 511 |
-| `BenchmarkScanKeywords` | 49.0 µs | 465.7 KB | 214 |
-| `BenchmarkParseExpressions` | 21.6 µs | 69.9 KB | 1.506 |
-| `BenchmarkParseFunctions` | 17.2 µs | 48.5 KB | 905 |
-| `BenchmarkFibRecursive` | 276.6 µs | 760.7 KB | 12.453 |
-| `BenchmarkLoopIntensive` | 1.35 ms | 1407.2 KB | 60.008 |
-| `BenchmarkClosureCounter` | 175.7 µs | 220.1 KB | 9.015 |
-| `BenchmarkPipelineEndToEnd` | 28.6 µs | 64.0 KB | 1.167 |
+| `BenchmarkScanArithmetic` | 17.1 µs | 123.2 KB | 511 |
+| `BenchmarkScanKeywords` | 49.6 µs | 465.7 KB | 214 |
+| `BenchmarkParseExpressions` | 24.0 µs | 75.4 KB | 1.506 |
+| `BenchmarkParseFunctions` | 25.0 µs | 59.1 KB | 1.205 |
 
-Lectura rápida: `fib(15)` son 1.973 llamadas, así que cada llamada cuesta ~140 ns y ~6 alocaciones; el `for` de 10.000 vueltas cuesta ~135 ns y 6 alocaciones por vuelta (cada vuelta ejecuta un bloque, y cada bloque crea su `Environment`). El análisis está en el README principal.
+Lectura rápida: la VM hace ~1,3 alocaciones por llamada de `fib` contra ~6
+del tree-walk, y 2 por vuelta del `for` contra 6. Lo que queda en la VM son
+números: un `float64` guardado en un `Value` (que es `any`) se aloca en el
+heap. El análisis está en el README principal.
 
+Los números de la línea de base que quedaron anotados al elegir la
+optimización se tomaron en otras condiciones y no se comparan con
+estos: la comparación antes/después de la optimización está hecha con los
+binarios de las dos versiones, en la misma corrida (`glox-vm-sin-opt` contra
+`glox`).
 
 ## 7. Experimentos del análisis
 
@@ -273,7 +301,7 @@ Para correrla (Linux):
 ./benchmarks/run_comparison.sh [glox_bin] [plox_bin] [repeticiones]
 ```
 
-En la corrida actual (Apple M5, Python 3.12) la ventaja de glox sobre plox en
+En la corrida de la entrega parcial (Apple M5, Python 3.12) la ventaja de glox (tree-walk) sobre plox en
 esos mismos tres scripts es 57×, 64× y 40×: menor que en WSL2 porque en una
 máquina más rápida glox los termina en 7–36 ms, y a esa escala el arranque de
 cada proceso pesa más. Por eso se agregaron los scripts con más carga.

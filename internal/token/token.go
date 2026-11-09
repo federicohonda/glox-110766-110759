@@ -43,6 +43,9 @@ const (
 	DOT
 	CLASS
 	THIS
+	SUPER
+	LEFT_BRACKET
+	RIGHT_BRACKET
 	EOF
 )
 
@@ -86,6 +89,9 @@ var tokenTypeNames = [...]string{
 	"DOT",
 	"CLASS",
 	"THIS",
+	"SUPER",
+	"LEFT_BRACKET",
+	"RIGHT_BRACKET",
 	"EOF",
 }
 

@@ -470,3 +470,73 @@ func TestPropertyAndThisParsing(t *testing.T) {
 		})
 	}
 }
+
+func TestHerenciaYSuperParsing(t *testing.T) {
+	cases := []struct {
+		name, source, want string
+	}{
+		{"clase con superclase", "class B < A {}", "(class B < A)"},
+		{"llamada a super", "class B < A { m() { return super.m(1); } }", "(class B < A (fun m () (return (call (super m) 1))))"},
+		{"super sin llamar", "class B < A { m() { var f = super.m; } }", "(class B < A (fun m () (var f = (super m))))"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := parseProgram(t, tc.source); got != tc.want {
+				t.Errorf("parseProgram() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestListasParsing(t *testing.T) {
+	cases := []struct {
+		name, source, want string
+	}{
+		{"lista vacía", "[]", "(list)"},
+		{"lista con elementos", "[1, \"a\", nil]", "(list 1 a nil)"},
+		{"listas anidadas", "[[1], [2, 3]]", "(list (list 1) (list 2 3))"},
+		{"índice", "a[0]", "([] a 0)"},
+		{"índices encadenados", "a[1][2]", "([] ([] a 1) 2)"},
+		{"índice sobre una llamada", "f()[0]", "([] (call f) 0)"},
+		{"índice sobre una propiedad", "this.items[i + 1]", "([] (. this items) (+ i 1))"},
+		{"asignación a un índice", "a[0] = 5", "(= ([] a 0) 5)"},
+		{"asignación anidada", "a[0][1] = b[2] = 3", "(= ([] ([] a 0) 1) (= ([] b 2) 3))"},
+		{"literal indexado", "[1, 2][0]", "([] (list 1 2) 0)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := parseTree(t, tc.source); got != tc.want {
+				t.Errorf("parseTree() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestListasErroresDeSintaxis(t *testing.T) {
+	cases := []struct {
+		name, source, want string
+	}{
+		{"lista sin cerrar", "var a = [1, 2;", "se esperaba ']' después de los elementos de la lista."},
+		{"índice sin cerrar", "a[0;", "se esperaba ']' después del índice."},
+		{"super sin punto", "class B < A { m() { super; } }", "se esperaba '.' después de 'super'."},
+		{"superclase que no es un nombre", "class B < 3 {}", "se esperaba el nombre de la superclase después de '<'."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tokens, _ := scanner.New(tc.source).Scan()
+			_, errs := parser.New(tokens).Parse()
+			if len(errs) == 0 || !strings.Contains(errs[0].Error(), tc.want) {
+				t.Fatalf("errores = %v, se esperaba uno con %q", errs, tc.want)
+			}
+		})
+	}
+}
+
+func TestListaLiteralLimite(t *testing.T) {
+	elems := strings.TrimSuffix(strings.Repeat("1, ", 256), ", ")
+	tokens, _ := scanner.New("var a = [" + elems + "];").Scan()
+	_, errs := parser.New(tokens).Parse()
+	if len(errs) != 1 || !strings.Contains(errs[0].Error(), "no puede tener más de 255 elementos") {
+		t.Fatalf("errores = %v, se esperaba exactamente el del tope de 255", errs)
+	}
+}
