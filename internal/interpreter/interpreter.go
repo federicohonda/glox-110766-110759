@@ -386,8 +386,11 @@ func (i *Interpreter) Evaluate(expr ast.Expr) (Value, error) {
 			}
 		}
 
-	case *ast.Get, *ast.Set, *ast.This:
+	case *ast.Get, *ast.Set, *ast.This, *ast.Super:
 		return nil, fmt.Errorf("las clases solo están disponibles en la VM")
+
+	case *ast.ListLiteral, *ast.Index, *ast.SetIndex:
+		return nil, fmt.Errorf("las listas solo están disponibles en la VM")
 
 	default:
 		return nil, fmt.Errorf("tipo de expresión no soportado: %T", expr)

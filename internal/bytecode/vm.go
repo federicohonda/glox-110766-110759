@@ -3,6 +3,7 @@ package bytecode
 import (
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"os"
 )
@@ -73,11 +74,22 @@ func NewVM(out ...io.Writer) *VM {
 	if len(out) > 0 && out[0] != nil {
 		w = out[0]
 	}
-	return &VM{
+	vm := &VM{
 		stack:       make([]Value, 0, stackInitialCapacity),
 		globalNames: make(map[string]int),
 		out:         w,
 	}
+	for _, native := range natives {
+		vm.defineGlobal(native.Name, native)
+	}
+	return vm
+}
+
+// defineGlobal crea una variable global ya definida, sin pasar por el
+// bytecode. Es como arrancan las funciones nativas.
+func (vm *VM) defineGlobal(name string, value Value) {
+	vm.globalNames[name] = len(vm.globalSlots)
+	vm.globalSlots = append(vm.globalSlots, globalVar{value: value, defined: true})
 }
 
 // Run ejecuta el chunk desde su primera instrucción y devuelve el valor que
@@ -359,6 +371,65 @@ func (vm *VM) Run(chunk *Chunk) (Value, error) {
 				return nil, err
 			}
 
+		case OpInherit:
+			subclass := vm.pop().(*Class)
+			superclass, ok := vm.peek(0).(*Class)
+			if !ok {
+				return nil, vm.runtimeError(offset, "<", "la superclase debe ser una clase, se obtuvo: %v", formatValue(vm.peek(0)))
+			}
+			// Se copian antes de que OpMethod agregue los propios, que pisan a
+			// los heredados del mismo nombre: eso es el override.
+			maps.Copy(subclass.Methods, superclass.Methods)
+
+		case OpGetSuper:
+			name := vm.chunk.Constants[vm.readByte()].(string)
+			superclass := vm.pop().(*Class)
+			receiver := vm.pop().(*Instance)
+			method, ok := superclass.Methods[name]
+			if !ok {
+				return nil, vm.runtimeError(offset, name, "propiedad no definida '%s'.", name)
+			}
+			vm.push(&BoundMethod{Receiver: receiver, Method: method})
+
+		case OpSuperInvoke:
+			name := vm.chunk.Constants[vm.readByte()].(string)
+			argc := int(vm.readByte())
+			superclass := vm.pop().(*Class)
+			method, ok := superclass.Methods[name]
+			if !ok {
+				return nil, vm.runtimeError(offset, name, "propiedad no definida '%s'.", name)
+			}
+			// `this` ya está debajo de los argumentos: es el slot 0 del frame nuevo.
+			if err := vm.callClosure(offset, method, argc); err != nil {
+				return nil, err
+			}
+
+		case OpList:
+			n := int(vm.readByte())
+			items := make([]Value, n)
+			copy(items, vm.stack[len(vm.stack)-n:])
+			vm.stack = vm.stack[:len(vm.stack)-n]
+			vm.push(&List{Items: items})
+
+		case OpGetIndex:
+			index, object := vm.pop(), vm.pop()
+			list, i, err := vm.checkIndex(offset, object, index)
+			if err != nil {
+				return nil, err
+			}
+			vm.push(list.Items[i])
+
+		case OpSetIndex:
+			// Regla de oro: lista, índice y valor ya están evaluados cuando se
+			// chequea si la lista y el índice son válidos.
+			value, index, object := vm.pop(), vm.pop(), vm.pop()
+			list, i, err := vm.checkIndex(offset, object, index)
+			if err != nil {
+				return nil, err
+			}
+			list.Items[i] = value
+			vm.push(value)
+
 		default:
 			return nil, fmt.Errorf("la VM encontró un opcode desconocido (%d) en el offset %d", byte(op), offset)
 		}
@@ -390,6 +461,18 @@ func (vm *VM) call(offset, argc int) error {
 
 	case *Closure:
 		return vm.callClosure(offset, c, argc)
+
+	case *Native:
+		if argc != c.Arity {
+			return vm.runtimeError(offset, ")", "se esperaban %d argumentos pero se recibieron %d.", c.Arity, argc)
+		}
+		result, err := c.Fn(vm.stack[len(vm.stack)-argc:])
+		if err != nil {
+			return vm.runtimeError(offset, c.Name, "%v", err)
+		}
+		vm.stack = vm.stack[:len(vm.stack)-argc-1]
+		vm.push(result)
+		return nil
 
 	default:
 		return vm.runtimeError(offset, ")", "solo se pueden llamar funciones, se obtuvo: %v", formatValue(callee))
@@ -425,6 +508,23 @@ func (vm *VM) invoke(offset int, name string, argc int) error {
 		return vm.runtimeError(offset, name, "propiedad no definida '%s'.", name)
 	}
 	return vm.callClosure(offset, method, argc)
+}
+
+// checkIndex verifica que object sea una lista e index una posición válida
+// de ella, y devuelve los dos ya convertidos.
+func (vm *VM) checkIndex(offset int, object, index Value) (*List, int, error) {
+	list, ok := object.(*List)
+	if !ok {
+		return nil, 0, vm.runtimeError(offset, "[", "solo se pueden indexar listas, se obtuvo: %v", formatValue(object))
+	}
+	n, ok := index.(float64)
+	if !ok || n != math.Trunc(n) {
+		return nil, 0, vm.runtimeError(offset, "[", "el índice debe ser un número entero, se obtuvo: %v", formatValue(index))
+	}
+	if n < 0 || n >= float64(len(list.Items)) {
+		return nil, 0, vm.runtimeError(offset, "[", "índice fuera de rango: %v (la lista tiene %d elementos).", n, len(list.Items))
+	}
+	return list, int(n), nil
 }
 
 func (vm *VM) readByte() byte {

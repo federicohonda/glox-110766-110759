@@ -1,0 +1,7 @@
+// exit: 70
+// stderr: [línea 6] Error en tiempo de ejecución en '[': índice fuera de rango: 3 (la lista tiene 3 elementos).
+var a = [1, 2, 3];
+print a[2]; // expect: 3
+
+print a[3];
+print "no llega";

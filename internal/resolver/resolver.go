@@ -31,6 +31,7 @@ type classType int
 const (
 	noClass classType = iota
 	insideClass
+	insideSubclass
 )
 
 // Resolver recorre el AST una única vez, antes de ejecutarlo, y calcula para
@@ -114,6 +115,19 @@ func (r *Resolver) resolveStmt(stmt ast.Stmt) {
 		r.declare(s.Name)
 		r.define(s.Name)
 
+		// La superclase se resuelve como cualquier variable, y `super` vive
+		// en un scope propio que envuelve al de `this`: es el mismo orden en
+		// que el compilador arma las locales.
+		if s.Superclass != nil {
+			if s.Superclass.Name.Lexeme == s.Name.Lexeme {
+				r.report(s.Superclass.Name, "una clase no puede heredar de sí misma.")
+			}
+			r.currentClass = insideSubclass
+			r.resolveExpr(s.Superclass)
+			r.beginScope()
+			r.scopes[len(r.scopes)-1]["super"] = true
+		}
+
 		r.beginScope()
 		r.scopes[len(r.scopes)-1]["this"] = true
 
@@ -126,6 +140,9 @@ func (r *Resolver) resolveStmt(stmt ast.Stmt) {
 		}
 
 		r.endScope()
+		if s.Superclass != nil {
+			r.endScope()
+		}
 		r.currentClass = enclosingClass
 
 	case *ast.ReturnStmt:
@@ -191,6 +208,31 @@ func (r *Resolver) resolveExpr(expr ast.Expr) {
 			return
 		}
 		r.resolveLocal(e, e.Keyword)
+
+	case *ast.Super:
+		switch r.currentClass {
+		case noClass:
+			r.report(e.Keyword, "no se puede usar 'super' fuera de una clase.")
+			return
+		case insideClass:
+			r.report(e.Keyword, "no se puede usar 'super' en una clase sin superclase.")
+			return
+		}
+		r.resolveLocal(e, e.Keyword)
+
+	case *ast.ListLiteral:
+		for _, element := range e.Elements {
+			r.resolveExpr(element)
+		}
+
+	case *ast.Index:
+		r.resolveExpr(e.Object)
+		r.resolveExpr(e.Index)
+
+	case *ast.SetIndex:
+		r.resolveExpr(e.Object)
+		r.resolveExpr(e.Index)
+		r.resolveExpr(e.Value)
 
 	case *ast.Literal:
 

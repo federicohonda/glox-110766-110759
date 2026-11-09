@@ -1,0 +1,4 @@
+// exit: 65
+// stderr: [línea 4] Error semántico en 'A': una clase no puede heredar de sí misma.
+print "no se ejecuta";
+class A < A {}

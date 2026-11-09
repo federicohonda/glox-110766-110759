@@ -1,0 +1,26 @@
+var vacia = [];
+print vacia;      // expect: []
+print len(vacia); // expect: 0
+
+var cosas = [1, "dos", nil, true, [3, 4]];
+print cosas;       // expect: [1, dos, nil, true, [3, 4]]
+print cosas[1];    // expect: dos
+print cosas[4][1]; // expect: 4
+print len(cosas);  // expect: 5
+
+cosas[0] = cosas[0] + 10;
+print cosas[0]; // expect: 11
+
+push(vacia, "a");
+push(vacia, "b");
+print vacia; // expect: [a, b]
+
+// Las listas son referencias: b y a son la misma lista.
+var a = [1];
+var b = a;
+push(b, 2);
+print a;      // expect: [1, 2]
+print a == b; // expect: true
+print a == [1, 2]; // expect: false
+
+print len("año"); // expect: 3

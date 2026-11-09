@@ -1,0 +1,33 @@
+// Una jerarquía de tres niveles: override, super y métodos heredados.
+class Animal {
+  init(nombre) {
+    this.nombre = nombre;
+  }
+  sonido() {
+    return "...";
+  }
+  hablar() {
+    return this.nombre + " dice " + this.sonido();
+  }
+}
+
+class Perro < Animal {
+  sonido() {
+    return "guau";
+  }
+}
+
+class Cachorro < Perro {
+  init(nombre) {
+    super.init(nombre + " (cachorro)");
+  }
+  sonido() {
+    return super.sonido() + " guau";
+  }
+}
+
+print Animal("Bicho").hablar();  // expect: Bicho dice ...
+print Perro("Firulais").hablar(); // expect: Firulais dice guau
+print Cachorro("Toby").hablar();  // expect: Toby (cachorro) dice guau guau
+print Cachorro;                   // expect: Cachorro
+print Cachorro("x");              // expect: Cachorro instance

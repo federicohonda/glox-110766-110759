@@ -1,0 +1,27 @@
+fun suma(xs) {
+  var total = 0;
+  for (var i = 0; i < len(xs); i = i + 1) {
+    total = total + xs[i];
+  }
+  return total;
+}
+
+fun mapear(xs, f) {
+  var res = [];
+  for (var i = 0; i < len(xs); i = i + 1) {
+    push(res, f(xs[i]));
+  }
+  return res;
+}
+
+fun cuadrado(x) { return x * x; }
+
+var nums = [1, 2, 3, 4];
+print suma(nums);              // expect: 10
+print mapear(nums, cuadrado);  // expect: [1, 4, 9, 16]
+print suma(mapear(nums, cuadrado)); // expect: 30
+
+// Una matriz como lista de listas.
+var m = [[1, 2], [3, 4]];
+m[1][0] = 9;
+print m; // expect: [[1, 2], [9, 4]]

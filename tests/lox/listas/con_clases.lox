@@ -1,0 +1,22 @@
+// Una pila implementada con una lista guardada en un campo.
+class Pila {
+  init() {
+    this.items = [];
+  }
+  apilar(x) {
+    push(this.items, x);
+    return this;
+  }
+  tope() {
+    return this.items[len(this.items) - 1];
+  }
+  tamanio() {
+    return len(this.items);
+  }
+}
+
+var p = Pila();
+p.apilar(1).apilar(2).apilar(3);
+print p.tope();    // expect: 3
+print p.tamanio(); // expect: 3
+print p.items;     // expect: [1, 2, 3]

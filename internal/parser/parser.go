@@ -26,7 +26,8 @@ func (e *ParseError) Error() string {
 // programa de Lox, siguiendo la gramática de precedencia y sentencias:
 //
 //	program        → declaration* EOF
-//	declaration    → funDecl | varDecl | statement
+//	declaration    → classDecl | funDecl | varDecl | statement
+//	classDecl      → "class" IDENTIFIER ( "<" IDENTIFIER )? "{" function* "}"
 //	funDecl        → "fun" function
 //	function       → IDENTIFIER "(" parameters? ")" block
 //	parameters     → IDENTIFIER ( "," IDENTIFIER )*
@@ -40,7 +41,9 @@ func (e *ParseError) Error() string {
 //	exprStmt       → expression ";"
 //	block          → "{" declaration* "}"
 //	expression     → assignment
-//	assignment     → IDENTIFIER "=" assignment | logicOr
+//	assignment     → ( call "." )? IDENTIFIER "=" assignment
+//	               | call "[" expression "]" "=" assignment
+//	               | logicOr
 //	logicOr        → logicAnd ( "or" logicAnd )*
 //	logicAnd       → equality ( "and" equality )*
 //	equality       → comparison ( ( "!=" | "==" ) comparison )*
@@ -48,9 +51,10 @@ func (e *ParseError) Error() string {
 //	term           → factor ( ( "-" | "+" ) factor )*
 //	factor         → unary ( ( "/" | "*" | "%" ) unary )*
 //	unary          → ( "!" | "-" ) unary | call
-//	call           → primary ( "(" arguments? ")" )*
+//	call           → primary ( "(" arguments? ")" | "." IDENTIFIER | "[" expression "]" )*
 //	arguments      → expression ( "," expression )*
 //	primary        → NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")" | IDENTIFIER
+//	               | "this" | "super" "." IDENTIFIER | "[" arguments? "]"
 type Parser struct {
 	tokens  []token.Token
 	current int
@@ -135,6 +139,13 @@ func (p *Parser) declaration() (stmt ast.Stmt, err error) {
 
 func (p *Parser) classDeclaration() ast.Stmt {
 	name := p.consume(token.IDENTIFIER, "se esperaba el nombre de la clase.")
+
+	var superclass *ast.Variable
+	if p.match(token.LESS) {
+		p.consume(token.IDENTIFIER, "se esperaba el nombre de la superclase después de '<'.")
+		superclass = &ast.Variable{Name: p.previous()}
+	}
+
 	p.consume(token.LEFT_BRACE, "se esperaba '{' antes del cuerpo de la clase.")
 
 	var methods []*ast.FunDecl
@@ -143,7 +154,7 @@ func (p *Parser) classDeclaration() ast.Stmt {
 	}
 
 	p.consume(token.RIGHT_BRACE, "se esperaba '}' después del cuerpo de la clase.")
-	return &ast.ClassDecl{Name: name, Methods: methods}
+	return &ast.ClassDecl{Name: name, Superclass: superclass, Methods: methods}
 }
 
 func (p *Parser) function(kind string) *ast.FunDecl {
@@ -340,6 +351,8 @@ func (p *Parser) assignment() ast.Expr {
 			return &ast.Assign{Name: variable.Name, Value: value}
 		} else if get, ok := expr.(*ast.Get); ok {
 			return &ast.Set{Object: get.Object, Name: get.Name, Value: value}
+		} else if index, ok := expr.(*ast.Index); ok {
+			return &ast.SetIndex{Object: index.Object, Bracket: index.Bracket, Index: index.Index, Value: value}
 		}
 
 		panic(p.errorAt(equals, "destino de asignación inválido."))
@@ -429,6 +442,10 @@ func (p *Parser) call() ast.Expr {
 		} else if p.match(token.DOT) {
 			name := p.consume(token.IDENTIFIER, "se esperaba el nombre de la propiedad después de '.'.")
 			expr = &ast.Get{Object: expr, Name: name}
+		} else if p.match(token.LEFT_BRACKET) {
+			index := p.expression()
+			bracket := p.consume(token.RIGHT_BRACKET, "se esperaba ']' después del índice.")
+			expr = &ast.Index{Object: expr, Bracket: bracket, Index: index}
 		} else {
 			break
 		}
@@ -465,6 +482,13 @@ func (p *Parser) primary() ast.Expr {
 		return &ast.Literal{Value: p.previous().Literal, Line: p.previous().Line}
 	case p.match(token.THIS):
 		return &ast.This{Keyword: p.previous()}
+	case p.match(token.SUPER):
+		keyword := p.previous()
+		p.consume(token.DOT, "se esperaba '.' después de 'super'.")
+		method := p.consume(token.IDENTIFIER, "se esperaba el nombre de un método de la superclase.")
+		return &ast.Super{Keyword: keyword, Method: method}
+	case p.match(token.LEFT_BRACKET):
+		return p.listLiteral()
 	case p.match(token.IDENTIFIER):
 		return &ast.Variable{Name: p.previous()}
 	case p.match(token.LEFT_PAREN):
@@ -473,6 +497,27 @@ func (p *Parser) primary() ast.Expr {
 		return &ast.Grouping{Expression: expr}
 	}
 	panic(p.errorAt(p.peek(), "se esperaba una expresión."))
+}
+
+// listLiteral parsea los elementos de `[a, b, c]` (el `[` ya se consumió).
+// El tope de elementos es el mismo que el de argumentos: el compilador arma
+// la lista con una sola instrucción que lleva la cantidad en un byte.
+func (p *Parser) listLiteral() ast.Expr {
+	bracket := p.previous()
+	var elements []ast.Expr
+	if !p.check(token.RIGHT_BRACKET) {
+		for {
+			if len(elements) >= maxArgs {
+				p.report(p.peek(), fmt.Sprintf("una lista literal no puede tener más de %d elementos.", maxArgs))
+			}
+			elements = append(elements, p.expression())
+			if !p.match(token.COMMA) {
+				break
+			}
+		}
+	}
+	p.consume(token.RIGHT_BRACKET, "se esperaba ']' después de los elementos de la lista.")
+	return &ast.ListLiteral{Bracket: bracket, Elements: elements}
 }
 
 func (p *Parser) synchronize() {

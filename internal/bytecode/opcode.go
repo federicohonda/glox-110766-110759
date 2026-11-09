@@ -98,6 +98,28 @@ const (
 	// OpInvoke optimiza la invocación de método combinando búsqueda y llamada.
 	// Operandos: índice constante del nombre (1 byte) y argc (1 byte).
 	OpInvoke
+
+	// Herencia:
+	// OpInherit copia los métodos de la superclase (debajo) a la subclase
+	// (tope), que se desapila. La superclase queda en la pila: es la local
+	// escondida `super`.
+	OpInherit
+	// OpGetSuper desapila la superclase y `this`, y apila el método de la
+	// superclase ligado a `this`. Operando: índice constante del nombre.
+	OpGetSuper
+	// OpSuperInvoke es `super.m(args)` en una sola instrucción. Pila:
+	// [this, args..., superclase]. Operandos: índice constante del nombre y argc.
+	OpSuperInvoke
+
+	// Listas (la funcionalidad extra):
+	// OpList desapila n elementos y apila una lista nueva con ellos, en orden.
+	// Operando: n (un byte).
+	OpList
+	// OpGetIndex desapila el índice y la lista, y apila el elemento.
+	OpGetIndex
+	// OpSetIndex desapila el valor, el índice y la lista, asigna el elemento
+	// y deja el valor (la asignación es una expresión).
+	OpSetIndex
 )
 
 var opCodeNames = [...]string{
@@ -138,6 +160,12 @@ var opCodeNames = [...]string{
 	OpGetProperty:  "OP_GET_PROPERTY",
 	OpSetProperty:  "OP_SET_PROPERTY",
 	OpInvoke:       "OP_INVOKE",
+	OpInherit:      "OP_INHERIT",
+	OpGetSuper:     "OP_GET_SUPER",
+	OpSuperInvoke:  "OP_SUPER_INVOKE",
+	OpList:         "OP_LIST",
+	OpGetIndex:     "OP_GET_INDEX",
+	OpSetIndex:     "OP_SET_INDEX",
 }
 
 func (op OpCode) String() string {

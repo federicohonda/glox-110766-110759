@@ -1,0 +1,30 @@
+// super se resuelve por la clase donde está escrito el método, no por la
+// clase de la instancia. Si fuera por la instancia, el super de B (ejecutado
+// sobre una C) volvería a B y no terminaría nunca.
+class A {
+  m() { return "A"; }
+}
+class B < A {
+  m() { return "B" + super.m(); }
+}
+class C < B {
+  m() { return "C" + super.m(); }
+}
+print C().m(); // expect: CBA
+print B().m(); // expect: BA
+
+// super sin llamar devuelve el método ligado a this.
+class D < A {
+  ligado() { return super.m; }
+}
+var f = D().ligado();
+print f(); // expect: A
+
+// y también funciona desde una función anidada en el método.
+class E < A {
+  m() {
+    fun interna() { return "E>" + super.m(); }
+    return interna();
+  }
+}
+print E().m(); // expect: E>A

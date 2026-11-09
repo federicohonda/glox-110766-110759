@@ -150,10 +150,12 @@ func TestScripts(t *testing.T) {
 		for _, path := range files {
 			name := strings.TrimSuffix(strings.TrimPrefix(path, "lox/"), ".lox")
 			t.Run(backend.name+"/"+name, func(t *testing.T) {
-				if backend.name == "tree-walk" && strings.HasPrefix(name, "clases/") {
+				// Clases y listas existen solo en la VM: el tree-walk tiene que
+				// rechazarlas con un error claro, no ejecutarlas a medias.
+				if feature, _, _ := strings.Cut(name, "/"); backend.name == "tree-walk" && (feature == "clases" || feature == "listas") {
 					res := runGlox(t, append(backend.flags, path)...)
-					if res.exit != 70 || !strings.Contains(res.stderr, "las clases solo están disponibles en la VM") {
-						t.Errorf("tree-walk debía rechazar clases con exit 70 y mensaje explicativo, obtuvo exit %d stderr: %s", res.exit, res.stderr)
+					if res.exit != 70 || !strings.Contains(res.stderr, "solo están disponibles en la VM") {
+						t.Errorf("tree-walk debía rechazar %s con exit 70 y mensaje explicativo, obtuvo exit %d stderr: %s", feature, res.exit, res.stderr)
 					}
 					return
 				}

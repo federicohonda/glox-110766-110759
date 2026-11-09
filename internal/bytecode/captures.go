@@ -111,6 +111,13 @@ func (f *captureFinder) stmt(stmt ast.Stmt) {
 
 	case *ast.ClassDecl:
 		f.declare(s.Name.Lexeme, s)
+		// `super` es una local escondida del scope que envuelve a los métodos,
+		// igual que en el compilador. La clave es el nodo de la superclase.
+		if s.Superclass != nil {
+			f.use(s.Superclass.Name.Lexeme)
+			f.beginScope()
+			f.declare("super", s.Superclass)
+		}
 		for _, method := range s.Methods {
 			f.function++
 			f.beginScope()
@@ -121,6 +128,9 @@ func (f *captureFinder) stmt(stmt ast.Stmt) {
 			f.stmts(method.Body)
 			f.endScope()
 			f.function--
+		}
+		if s.Superclass != nil {
+			f.endScope()
 		}
 	}
 }
@@ -149,10 +159,24 @@ func (f *captureFinder) expr(expr ast.Expr) {
 		}
 	case *ast.This:
 		f.use("this")
+	case *ast.Super:
+		f.use("this")
+		f.use("super")
 	case *ast.Get:
 		f.expr(e.Object)
 	case *ast.Set:
 		f.expr(e.Object)
+		f.expr(e.Value)
+	case *ast.ListLiteral:
+		for _, element := range e.Elements {
+			f.expr(element)
+		}
+	case *ast.Index:
+		f.expr(e.Object)
+		f.expr(e.Index)
+	case *ast.SetIndex:
+		f.expr(e.Object)
+		f.expr(e.Index)
 		f.expr(e.Value)
 	}
 }

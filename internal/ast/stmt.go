@@ -143,10 +143,12 @@ func (f *FunDecl) String() string {
 }
 
 // ClassDecl representa la declaración de una clase:
-// `class <name> { <methods>* }`.
+// `class <name> ( < <superclass> )? { <methods>* }`. Superclass es nil si la
+// clase no hereda de ninguna.
 type ClassDecl struct {
-	Name    token.Token
-	Methods []*FunDecl
+	Name       token.Token
+	Superclass *Variable
+	Methods    []*FunDecl
 }
 
 func (*ClassDecl) isStmt() {}
@@ -154,6 +156,9 @@ func (*ClassDecl) isStmt() {}
 func (c *ClassDecl) String() string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "(class %s", c.Name.Lexeme)
+	if c.Superclass != nil {
+		fmt.Fprintf(&sb, " < %s", c.Superclass.Name.Lexeme)
+	}
 	for _, m := range c.Methods {
 		sb.WriteString(" ")
 		sb.WriteString(m.String())

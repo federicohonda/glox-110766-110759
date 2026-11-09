@@ -41,3 +41,15 @@ func (*This) isExpr() {}
 func (t *This) String() string {
 	return "this"
 }
+
+// Super representa el acceso a un método de la superclase: `super.<method>`.
+type Super struct {
+	Keyword token.Token
+	Method  token.Token
+}
+
+func (*Super) isExpr() {}
+
+func (s *Super) String() string {
+	return fmt.Sprintf("(super %s)", s.Method.Lexeme)
+}
