@@ -327,7 +327,7 @@ método ligado a `obj`, y `super.m()` llama al `m` de la superclase.
   closures de las funciones:
 
   ```
-  == <script> ==                      == <fn hola> ==   (de B)
+  == COMPILETIME ==                   == <fn hola> ==   (de B)
   ...                                 OP_CONSTANT       'B y '
   OP_GET_GLOBAL      'A'              OP_GET_LOCAL      0     ; this
   OP_GET_GLOBAL      'B'              OP_GET_CAPTURED   0     ; super
@@ -337,6 +337,8 @@ método ligado a `obj`, y `super.m()` llama al `m` de la superclase.
   OP_CLOSURE    <fn hola>             OP_ADD
                 local 0               OP_RETURN
   OP_METHOD     'hola'
+  OP_POP        ; saca B
+  OP_POP        ; cierra el scope de `super`
   ```
 
   Importa por el caso de tres niveles: en `C < B < A`, un `super.m()` escrito
@@ -497,7 +499,7 @@ backends.
 | Nivel | Dónde | Qué cubre |
 |---|---|---|
 | Pruebas de la cátedra | `real-tests/` | 5 archivos, 57 aserciones: aritmética, strings, control de flujo, funciones, el bug de closures, una máquina de Minsky y FizzBuzz. **5/5 OK con la VM y 5/5 con `--tree-walk`.** |
-| Unitarias | `internal/*/*_test.go` | Cada paquete por separado: parser 98,5%, resolver 92,7%, scanner 93,3%, interpreter 92,6%, bytecode 89,5% de cobertura. En `bytecode`, archivos por tema (`compiler`, `vm`, `functions`, `classes`, `inheritance`, `lists`), con listados exactos del bytecode esperado en los casos delicados. |
+| Unitarias | `internal/*/*_test.go` | Cada paquete por separado: parser ~98,5%, resolver ~92,7%, scanner ~93,3%, interpreter ~92,6%, bytecode ~89,5% de cobertura. En `bytecode`, archivos por tema (`compiler`, `vm`, `functions`, `classes`, `inheritance`, `lists`), con listados exactos del bytecode esperado en los casos delicados. |
 | Tree-walk vs. bytecode | `internal/bytecode/treewalk_test.go` | El intérprete como oráculo de la VM: 60 casos borde y 3000 expresiones al azar con semilla fija, comparando valor o mensaje de error completo. |
 | End-to-end | `tests/` | El binario real sobre 53 scripts `.lox` (corridos por los dos backends) y 31 programas para `--disassemble`, más el REPL, los modos de inspección, los códigos de salida, la salida completa de los tres programas de `examples/` y el resultado de cada benchmark. |
 
@@ -555,7 +557,7 @@ las mismas ideas en otros lenguajes. Las tres están acá. Cómo se mide y cómo
 reproducirlo está en [`benchmarks/README.md`](benchmarks/README.md); las
 tablas completas, en [`benchmarks/results/RESULTS.md`](benchmarks/results/RESULTS.md).
 
-- **Máquina:** Apple M5, 16 GB de RAM, macOS 26 · Go 1.27 · 08/11/2026. La
+- **Máquina:** Apple M5, 16 GB de RAM, macOS 26 · Go 1.27 (`go.mod` pide 1.26+) · 08/11/2026. La
   misma de la entrega parcial.
 - **Métrica:** mediana del tiempo total del proceso (arranque + scan + parse +
   resolve + compilación + ejecución) sobre 3 a 5 corridas, validando que cada
@@ -826,7 +828,9 @@ La salida completa de los tres programas de `examples/` está en
 - **No hay forma de pasar un número a texto** (no es parte de Lox), por eso
   los programas de ejemplo lo hacen con aritmética.
 - El tree-walk no tiene clases ni listas (a propósito, ver
-  [Del tree-walk al bytecode](#del-tree-walk-al-bytecode)).
+  [Del tree-walk al bytecode](#del-tree-walk-al-bytecode)), ni tope propio de
+  recursión (una recursión infinita termina con el *stack overflow* fatal de
+  Go en vez de un error de runtime 70 como en la VM).
 
 ---
 
